@@ -1,0 +1,21 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "qrsuisse",
+  "version": "1.0.0",
+  "description": "Use the QR Suisse public REST API (v1) from an AI agent: create, read, update and archive dynamic QR codes and read their aggregated scan statistics, with an API key provided by the user (Pro and Entreprise plans).",
+  "author": {
+    "name": "Skyday Sàrl",
+    "url": "https://www.qrsuisse.ch"
+  },
+  "homepage": "https://www.qrsuisse.ch/en/api-documentation",
+  "repository": "https://github.com/skyday-sarl/qrsuisse-agents",
+  "license": "MIT",
+  "keywords": [
+    "qr-code",
+    "dynamic-qr-code",
+    "rest-api",
+    "openapi",
+    "switzerland",
+    "qrsuisse"
+  ]
+}
