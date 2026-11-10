@@ -1,0 +1,50 @@
+{
+  "name": "@qrsuisse/sdk",
+  "version": "0.1.0",
+  "private": false,
+  "description": "TypeScript client for the QR Suisse public REST API (v1): dynamic QR codes, images, scan statistics, creation quota and style templates.",
+  "keywords": [
+    "qr-code",
+    "dynamic-qr-code",
+    "qrsuisse",
+    "rest-api",
+    "openapi",
+    "sdk",
+    "switzerland"
+  ],
+  "homepage": "https://www.qrsuisse.ch/en/api-documentation",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/skyday-sarl/qrsuisse-agents.git",
+    "directory": "packages/sdk"
+  },
+  "bugs": {
+    "url": "https://github.com/skyday-sarl/qrsuisse-agents/blob/main/SECURITY.md"
+  },
+  "license": "MIT",
+  "author": "Skyday Sàrl (https://www.qrsuisse.ch)",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "generate": "openapi-typescript ../../spec/openapi.yaml --default-non-nullable false --output src/generated/openapi.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build"
+  }
+}

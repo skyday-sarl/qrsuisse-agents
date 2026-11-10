@@ -1,0 +1,2049 @@
+openapi: 3.1.0
+info:
+  title: QR Suisse public API — v1
+  version: 1.3.0
+  description: |
+    Public REST API of QR Suisse, available with the Pro and Entreprise plans. Documents the
+    9 endpoints exposed under `/api/v1/*`, in their version 1.3.0. Within v1, changes are
+    compatible additions, apart from a few changes in behaviour listed in "Version history".
+
+    ## Authentication
+
+    Header `Authorization: Bearer qrs_live_<apiKeyId>.<secret>` — a single string copied as is
+    from the reveal panel of the dashboard (when the key is created or rotated), to be pasted
+    directly into the header. **This is not a JWT**: the part before the first `.` (after the
+    fixed `qrs_live_` prefix) is the key identifier (direct lookup, never secret), the part after
+    the `.` is the opaque, high-entropy secret, compared in constant time on the server. A
+    missing or malformed header, a revoked or unknown key, a frozen key (see below) or a wrong
+    secret **all** return the same `401 unauthorized` error — none of these cases is
+    distinguished in the response (anti-enumeration). Every `401` carries the same
+    `WWW-Authenticate: Bearer realm="qrsuisse-api"` header (RFC 6750), with no detail on the
+    reason for the refusal.
+
+    The scheme name, `Bearer`, is case-insensitive (RFC 9110); it is followed by a single space,
+    then the key. The key itself is case-sensitive: send it exactly as it was copied.
+
+    **HTTPS only; a key sent over HTTP must be rotated.** The API answers only over HTTPS. A
+    request sent over HTTP (`http://`) is neither redirected nor processed: it receives
+    `403 https_required`, before any check of the key. By then the key has already travelled in
+    clear text over the network: treat it as exposed and rotate it from the dashboard (see
+    "Rotation and revocation").
+
+    Access to the API as a whole is a capability of the **Pro and Entreprise plans**, checked on
+    every request (never cached). Each plan allows a maximum number of keys active at the same
+    time: **1 with the Pro plan, 10 with the Entreprise plan**. When a plan change lowers this
+    limit, the excess keys (the most recent ones) are **frozen** — neither revoked nor
+    deleted — and become usable again automatically as soon as a plan allowing more keys is
+    active again. When a Pro or Entreprise subscription ends and the account goes back to the
+    Free plan, **all** its keys are frozen: they stop working immediately, read access
+    included, with `401 unauthorized`. `403 plan_required` only concerns a key that is not
+    frozen, on an account that is no longer on a Pro or Entreprise plan (edge case, outside the
+    normal end of a subscription).
+
+    ## Obtaining a key
+
+    An API key can only be created from the QR Suisse dashboard, by a member of a Pro or Entreprise
+    account who has the "Manager of API keys" permission (or Administrator); this member also
+    chooses the key's rights. There is no OAuth, no automatic client registration and no API
+    endpoint that issues a key: an agent or a tool cannot obtain a key on its own; this member
+    provides it. An agent without a key therefore asks the user to have one created with the rights
+    it needs and to provide it through the agent's configuration. The full key is only shown once,
+    when it is created or rotated: QR Suisse does not store it in plain text and cannot send it
+    again.
+
+    ## Suspended account or account pending deletion
+
+    When the account that owns the key is **suspended** by QR Suisse, or **pending deletion**
+    due to inactivity, any request with a valid key returns `403 account_disabled`, **read
+    access included**. The message states which of the two applies, never the reason for the
+    suspension. This check happens after the key is verified and before the plan and rights are
+    checked: an invalid, revoked or frozen key still gets `401 unauthorized`. The key is neither
+    revoked nor frozen: there is no point in regenerating it, the account holder has to take
+    action. When a suspension is lifted, the key works again automatically, without rotation.
+    Pending deletion only concerns accounts on the Free plan: after reactivation, the account
+    stays on the Free plan and the usual rules apply (frozen key, hence `401 unauthorized`, or
+    `403 plan_required`).
+
+    ## Atomic rights of a key
+
+    A key carries a subset of the following 5 atomic rights: `QR_CREATE`, `QR_READ`, `QR_UPDATE`,
+    `QR_DELETE`, `STATS_READ`. Each operation states the right it requires ("Required right") — it
+    is **not** modelled with OAuth2 scopes (this API has a single Bearer authentication scheme, not
+    a standard scope mechanism). A call with an authenticated key that lacks the required right
+    returns `403 forbidden`.
+
+    ## Multi-tenant isolation
+
+    Each key only acts on the resources of the account that issued it. A resource that does not
+    exist OR belongs to another account **always** returns `404 not_found` — never `403`: the
+    API never confirms that a resource of another account exists.
+
+    ## Rotation and revocation
+
+    **Rotating** a key, from the dashboard, generates a new secret and invalidates the old one at
+    the same instant: a key never has two valid secrets at the same time. Only the secret changes:
+    the key keeps its identifier (the part before the `.`), its name and its rights; until the tool
+    that uses it receives the new value, its calls are refused with `401 unauthorized`. **Revoking**
+    a key makes it unusable immediately and permanently (`401 unauthorized`): it can no longer be
+    reactivated or rotated. QR Suisse can also revoke all the keys of an account, active or frozen,
+    at the request of one of the account's administrators or if a key may have been exposed or used
+    without the account holder's consent; the account's administrators are informed by email.
+    Neither rotation nor revocation changes or deletes any QR code.
+
+    ## Keeping the key secret
+
+    - Treat the full key as a password: store it in a secrets manager or an environment variable,
+      never in versioned code, a shared file, a ticket or a screenshot.
+    - Never paste the key into a shared or stored conversation, including with an AI assistant. An
+      agent receives the key through its configuration (environment variable, secrets manager) and
+      never asks the user to type it into the conversation.
+    - Send it only in the `Authorization` header, over HTTPS, to `https://app.qrsuisse.ch/api/v1` —
+      never in a URL. Do not log this header.
+    - Give a key only the rights it needs: for example `QR_READ` and `STATS_READ` (the "AI assistant
+      agent" preset in the dashboard) for an agent that only looks things up. With the Entreprise
+      plan, use one key per tool, so that you can revoke one without cutting off the others.
+    - If the key may have been exposed, rotate or revoke it immediately from the dashboard; if the
+      account is on the Free plan, write to contact@qrsuisse.ch from the email address of one of the
+      account's administrators. An agent that suspects its key may have been exposed reports it to
+      the account holder.
+
+    ## Rate limiting
+
+    Three independent buckets:
+    - **Generic** — 30 requests / 60 seconds per API key, applied to **every** authenticated
+      request on the 9 endpoints.
+    - **Creation** — 8 requests / 60 seconds per API key, applied **on top of** the generic
+      bucket, only on `POST /qr-codes`.
+    - **PNG image** — 10 renders / 60 seconds **per account** (shared by all the keys of the
+      account), applied **on top of** the generic bucket, only on `GET /qr-codes/{id}/image` in
+      PNG format. Neither the SVG format nor a `304` response counts towards it. A render
+      refused with `503 render_busy` also counts: an immediate new attempt may receive
+      `429 rate_limited` until the end of the window.
+
+    Exceeding a limit returns `429 rate_limited` with a `Retry-After` header: the number of
+    seconds until the window of the exhausted bucket reopens. The
+    buckets of a key are counted as soon as the key and its secret are recognised, including
+    when the request is then refused (`403 account_disabled`, `plan_required` or `forbidden`):
+    once a bucket is exhausted, `429 rate_limited` is returned, before these refusals.
+
+    Requests refused with `401 unauthorized` are additionally limited by IP address:
+    60 refusals / 60 seconds per IPv4 address or per IPv6 /64 network, and 300 refusals /
+    60 seconds per IPv6 /48 network. Beyond that, the API returns `429 rate_limited` (with
+    `Retry-After`) without checking the key, even a valid one, until the end of the window.
+
+    **Rate limit headers.** On the 9 documented operations, as soon as the key is recognised,
+    every response, success or refusal, gives the state of the buckets consulted by the request, in the format of the IETF
+    draft "RateLimit header fields for HTTP" (`draft-ietf-httpapi-ratelimit-headers`):
+    - `RateLimit-Policy` gives the rule of each bucket: its name, `q` the number of requests
+      allowed per window and `w` the length of the window in seconds, for example
+      `"api-request";q=30;w=60, "api-create";q=8;w=60`;
+    - `RateLimit` gives the state of each bucket after the request: `r` the number of requests
+      remaining and `t` the seconds until the window reopens, for example
+      `"api-request";r=29;t=60, "api-create";r=7;t=60`.
+
+    Bucket names: `api-request` (generic), `api-create` (creation), `api-image` (PNG image, only
+    when a PNG render is requested). A bucket that was not consulted is not listed: after a
+    refusal by the generic bucket, for example, the creation bucket is not. A `401` does not
+    carry these headers, nor does a response given before any check of the key (unknown path
+    with `404`, `405`, `400` for encoding, `403 https_required`); the `429` for `401` refusals per IP address carries those of the
+    `api-unauthorized-ip` bucket and, over IPv6, `api-unauthorized-ip-net48`. As the format is
+    still a draft, it may change: only `429 rate_limited` and `Retry-After` are authoritative.
+
+    ## Commercial creation quota
+
+    `POST /qr-codes` is also subject to a monthly creation quota: **5 creations per UTC
+    calendar month with the Pro plan, 100 with the Entreprise plan**, then the balance of the
+    purchased API creation packs (one-time purchase, used after the monthly quota, oldest
+    first). Each successful creation counts, even if the QR code is deleted afterwards:
+    deleting does not give a creation back. The monthly quota does not carry over and resets on the 1st of each month at
+    00:00 UTC. When the monthly quota and all available packs are used up, creation returns
+    `429 quota_exceeded` with the reset date of the monthly quota (`resetAt`, ISO 8601) and a
+    `Retry-After` header, in seconds until that date — hard block, no pay-per-use billing in
+    v1.
+
+    `GET /usage` gives the balance at any time: creations of the month, monthly quota, credits
+    remaining in the packs and reset date.
+
+    ## Style of QR codes and templates
+
+    The style of a QR code (colours, shapes of the modules and of the corners, logo in the centre) is
+    set in the dashboard, as **style templates** of the account. The API neither creates nor
+    changes any template: it applies an existing template to a QR code, with the `templateId`
+    field of `POST /qr-codes` and of `PATCH /qr-codes/{id}`. `GET /templates` lists the templates
+    of the account and their identifier.
+
+    - `templateId` of a template of the account: its style is copied to the QR code, which keeps
+      the link to this template. Changing the template afterwards does not change the QR code:
+      send the same `templateId` again to apply the current style of the template.
+    - `templateId: null`: no style, the QR code goes back to the standard rendering (black on
+      white).
+    - `templateId` missing: on creation, the **default template** of the account if it has one,
+      otherwise no style; on update, the style does not change.
+    - A template of another account, or one that does not exist, returns `404 not_found`.
+    - A `style` field in the request body is rejected with `400 validation_error`: a style is
+      never sent directly, only through a template.
+
+    The style applies according to the current plan of the account: colours with every plan,
+    shapes with Pro and Entreprise, the logo with Entreprise only. The style returned by the API
+    (`style` of QR codes and templates) and the image of `GET /qr-codes/{id}/image` follow this
+    rule on every call.
+
+    **Required templates (Entreprise).** A member of the account who has the "Manager of style
+    templates" permission (or Administrator) can require the members of the team to use the
+    templates, from the dashboard. While templates are required, an API key has to choose a template of the
+    account: `templateId: null` is rejected with `403 template_locked`, a creation without
+    `templateId` receives the default template, or `422 template_required` if the account has
+    none, and the image without style (`style=none`) is rejected with `403 template_locked`. An
+    API key can neither manage the templates nor lift this requirement. Outside Entreprise, it
+    does not apply.
+
+    ## Common error format
+
+    Every error of this API returns the same shape `{ "error": "<code>", "message": "<text>",
+    ...possible details }`. 18 stable codes: an existing code never changes; a minor version may
+    add new ones, only for a new and optional feature (see "Version history"). The codes:
+    `unauthorized` (401),
+    `plan_required` (403), `forbidden` (403), `account_disabled` (403), `https_required` (403),
+    `not_found` (404), `method_not_allowed` (405), `validation_error` (400), `quota_exceeded`
+    (429), `rate_limited` (429), and for `POST /qr-codes` with the `Idempotency-Key` header:
+    `idempotency_key_mismatch` (422), `idempotency_in_progress` (409), `resource_deleted` (410),
+    and for `POST /qr-codes` and `PATCH /qr-codes/{id}`: `payload_too_large` (413), request body
+    larger than 64 KiB, `template_locked` (403) and `template_required` (422), for the style by
+    template (see "Style of QR codes and templates"), and for `GET /qr-codes/{id}/image`:
+    `template_locked` (403), `render_busy` (503, server busy, with `Retry-After`) and
+    `internal_error` (500, image that cannot be produced).
+    The `message` text is a reading aid, in French as in the examples of this specification, and
+    it may change without notice. Base your code on the `error` code, never on `message`.
+    A URL path containing an invalid `%` sequence (e.g. `%zz`) is refused before any
+    authentication with `400 validation_error`. An unknown path under `/api/v1/` returns
+    `404 not_found`. An HTTP method that an existing endpoint does not support returns
+    `405 method_not_allowed`, with an `Allow` header listing the accepted methods. These two
+    responses are the same with or without an API key. A request over HTTP receives
+    `403 https_required` before all these checks (see "Authentication").
+
+    ## Public index
+
+    `GET /api/v1`, without authentication, returns a static JSON document: name and version of
+    the API, and links to its OpenAPI specification, its catalog (RFC 9727), its documentation
+    and its authentication guide. The specification is published at
+    `https://www.qrsuisse.ch/openapi.json` (and `/openapi.yaml`), in English by default;
+    `?lang=fr`, `de` or `it` returns the translated version. The index is limited to 60 requests
+    / 60 seconds per IPv4 address or per IPv6 /64 network, and to 300 requests / 60 seconds per
+    IPv6 /48 network (`429 rate_limited` beyond that); its responses carry the `RateLimit` and
+    `RateLimit-Policy` headers of the `api-index-ip` bucket and, over IPv6,
+    `api-index-ip-net48`.
+
+    The authentication guide, in English, is published at `https://www.qrsuisse.ch/auth.md`.
+
+    ## Good practices
+
+    - Send an `Idempotency-Key` with every creation (a new random value, UUID v4 recommended, no
+      personal data) and send the same value again if the request fails on a timeout or a dropped
+      connection (see `POST /qr-codes`).
+    - On `429 rate_limited` or `409 idempotency_in_progress`, wait for the delay given in
+      `Retry-After` before trying again; on `429 quota_exceeded`, do not try again before
+      `resetAt` or the purchase of a pack (the balance can be read with `GET /usage`).
+    - To avoid `429`s, slow down when the `r` of a bucket in the `RateLimit` header gets close
+      to 0, and wait for its `t` seconds if it reaches 0.
+    - To page through a filtered or sorted list, send the same filter and sort parameters again
+      with `cursor`; only `limit` may change.
+    - In a date with an offset (`createdFrom`, `createdBefore`), encode the `+` as `%2B`, or use
+      `Z`.
+    - Send the `ETag` of an image back in `If-None-Match` to avoid downloading it again, and prefer
+      SVG for printing.
+    - To style a QR code, read `GET /templates` and pass the `id` of the template in
+      `templateId`; never send a `style` field.
+    - Handle errors by their `error` code, never by `message`.
+    - Watch for the `Deprecation` header in responses: it signals that an operation you use will
+      be withdrawn (see "Versioning and deprecation").
+
+    ## Versioning and deprecation
+
+    The major version is part of the address of the API (`/api/v1`). Within v1, minor and patch
+    versions follow the rules described in "Version history": an integration written for v1
+    keeps working. An incompatible change would be released as a new major version, at another
+    address, without changing v1.
+
+    Each new version is announced in "Version history", with its month of release, its new
+    features and its changes in behaviour. The current version is the one given in
+    `info.version` of this specification.
+
+    **Deprecation.** An operation, a parameter or a major version is only withdrawn after being
+    deprecated, with a notice period of at least {{PREAVIS}} between the announcement of the
+    deprecation and the withdrawal. During this notice period, the deprecated element keeps
+    working normally, and:
+    - it is marked `deprecated` in this specification, and the deprecation is announced in
+      "Version history", with the withdrawal date and how to migrate;
+    - the responses of the operation concerned carry the `Deprecation` header (RFC 9745) with
+      the date of the deprecation, the `Sunset` header (RFC 8594) with the withdrawal date, and
+      a `Link` header with `rel="deprecation"` pointing to the migration documentation.
+
+    No operation is deprecated today.
+
+    ## Version history
+
+    The version is given in `info.version` of this specification. Within v1, a minor version only
+    adds optional features: an integration written for v1.0 keeps working without any change,
+    subject to the "Changes in behaviour" below. A patch version (for example 1.1.1) fixes a
+    defect, without new features; it may reject a request that did not comply with this
+    documentation. An incompatible change would be released as a v2, at another address.
+
+    ### 1.3.0 — November 2026
+
+    New:
+    - **Rate limit headers** `RateLimit` and `RateLimit-Policy` on the responses to a
+      recognised key and on those of the public index (see "Rate limiting").
+    - Versioning and deprecation policy (see "Versioning and deprecation").
+
+    Changes in behaviour:
+    - The `Retry-After` of a `429 rate_limited` gives the time remaining until the window
+      reopens, no longer its full length: it may be shorter than before.
+    - `429 quota_exceeded` carries a `Retry-After` header, in seconds until `resetAt`.
+
+    ### 1.2.1 — November 2026
+
+    Patch release, with no new features.
+
+    Changes in behaviour:
+    - A label containing a C1 control character (U+0080 to U+009F, including U+0085), a line or
+      paragraph separator (U+2028, U+2029) or a text direction control character (U+202A to
+      U+202E, U+2066 to U+2069) is rejected with `400 validation_error`, as control characters
+      have been since 1.1.0.
+    - The business card fields (`firstName`, `lastName`, `organization`, `jobTitle`, `website`,
+      values of `phones` and `emails`, fields of `addresses`) reject the same characters as the
+      label, with `400 validation_error`. Previously, a null character was accepted there.
+    - The label and these fields also reject invisible characters: U+200B, U+2060 to U+2064,
+      U+FEFF, U+180E, U+206A to U+206F, U+FFF9 to U+FFFB and "tag" characters (U+E0000 to
+      U+E007F), except within a subdivision flag (🏴 Scotland, for example). U+200C, U+200D,
+      variation selectors and combining characters remain accepted.
+    - The label and these fields are stored in NFC normalised form: an "é" sent decomposed
+      ("e" followed by the combining accent) is stored and returned composed.
+    - The `message` of a `400 validation_error` always names the field concerned, for example
+      "Champ « emails[1].value » : Adresse email invalide".
+
+    ### 1.2.0 — November 2026
+
+    New:
+    - **Style by template**: `templateId` field on `POST /qr-codes` and `PATCH /qr-codes/{id}`
+      (identifier of a template of the account, or `null` for no style). See "Style of QR codes
+      and templates".
+    - **List the templates** of the account with `GET /templates`. Right `QR_READ`.
+    - `QrCode` responses carry `templateId` and `style` (effective style: colours, shapes,
+      presence of a logo).
+    - The image `GET /qr-codes/{id}/image` carries the effective style of the QR code;
+      `?style=none` gives the standard rendering.
+    - New error codes, for these features: `403 template_locked` and `422 template_required`
+      (required templates, Entreprise), `503 render_busy` (with `Retry-After`) and
+      `500 internal_error` (image).
+
+    Changes in behaviour:
+    - `POST /qr-codes` without `templateId` applies the default template of the account, if it
+      has one. Previously, a QR code created through the API never had a style.
+    - A `style` field in the body of `POST /qr-codes` or `PATCH /qr-codes/{id}`, previously
+      ignored, is rejected with `400 validation_error`.
+    - All image `ETag` values change once, with the new rendering engine; the image of a QR code
+      without style does not change.
+    - The `style` parameter of `GET /qr-codes/{id}/image`, previously ignored, only accepts
+      `none`: any other value, and a repeated `style`, are rejected with `400 validation_error`.
+    - An unexpected image rendering error answers `500 internal_error` with the common error body
+      (previously, a `500` without a body).
+    - A PNG render may be refused with `503 render_busy` when the server is already preparing
+      other images: try again after `Retry-After`. This refusal counts one render in the PNG
+      image bucket.
+
+    ### 1.1.1 — October 2026
+
+    Patch version, without new features.
+
+    Changes in behaviour:
+    - A body of `POST /qr-codes` or `PATCH /qr-codes/{id}` that is not valid UTF-8 (for example
+      text encoded in ISO-8859-1) is rejected with `400 validation_error`. Previously, the invalid
+      bytes were replaced with "�" and saved.
+    - Two simultaneous `DELETE` requests on the same QR code could still answer `500`, and a
+      `PATCH` on a QR code deleted at the same moment could answer `200` without saving anything,
+      or `500`: the request that finds the QR code already deleted now answers `404 not_found`, as
+      announced in 1.1.0.
+
+    ### 1.1.0 — October 2026
+
+    New:
+    - **Archive and reactivate** a QR code with `PATCH /qr-codes/{id}` and the `active` field
+      (`false` archives, `true` reactivates), without using a creation. Right `QR_UPDATE`.
+    - **Filter, search and sort the list** `GET /qr-codes`: `active`, `type`, `q` (label,
+      destination and end of the public URL), `createdFrom`, `createdBefore`, `sort`. For the next
+      page, send the same parameters again with `cursor`.
+    - **Read the creation quota** with `GET /usage`: creations of the month, monthly quota, pack
+      credits remaining, reset date. Right `QR_CREATE`.
+    - **Retry a creation without a duplicate** with the optional `Idempotency-Key` header on
+      `POST /qr-codes` (UUID v4 recommended, no personal data, 24 hours). Three new error codes,
+      returned only with this header: `422 idempotency_key_mismatch`,
+      `409 idempotency_in_progress`, `410 resource_deleted`.
+
+    Changes in behaviour:
+    - `GET /qr-codes` without parameters sorts by creation date, newest first, then by `id`
+      (before: by `id` descending only); in practice the order is the same.
+    - `nextCursor` is now an opaque value. A cursor that is invalid, obtained with other
+      parameters or by another account is rejected with `400 validation_error`. The former v1.0
+      cursor (the `id` of the last item) remains accepted throughout v1, for the list without
+      filter or sort.
+    - The `active`, `type`, `q`, `createdFrom`, `createdBefore` and `sort` parameters of the list,
+      previously ignored, are now applied and validated: an invalid, empty or repeated value is
+      rejected with `400 validation_error`.
+    - An `active` field in the body of `PATCH /qr-codes/{id}`, previously ignored, is now applied.
+    - A request body larger than 64 KiB on `POST /qr-codes` or `PATCH /qr-codes/{id}` is rejected
+      with `413 payload_too_large` (new code; a normal body comes nowhere near this limit).
+    - A label containing a control character (null character, tab, line break…) is rejected with
+      `400 validation_error`.
+    - Every response carries `Cache-Control: no-store`, except the image of a QR code
+      (`private, no-cache` with `ETag`).
+    - A `PATCH` or `DELETE` on a QR code deleted at the same moment by another request answers
+      `404 not_found` instead of `500`.
+    - A malformed Unicode string (an isolated surrogate, for example `\ud800`) in the body of
+      `POST /qr-codes` or `PATCH /qr-codes/{id}` is rejected with `400 validation_error` instead of
+      a `500` error.
+
+    ### 1.0.0 — September 2026
+
+    First public version: creating, reading, listing, updating and deleting QR codes (`URL` and
+    `VCARD` types), PNG or SVG image, scan statistics.
+  contact:
+    name: QR Suisse
+servers:
+  - url: https://app.qrsuisse.ch/api/v1
+    description: Production
+security:
+  - ApiKeyAuth: []
+tags:
+  - name: QR Codes
+    x-displayName: QR codes
+    description: Manage the QR codes of the account that owns the API key (create, search, update, archive, delete), download their image and read their statistics.
+  - name: Usage
+    x-displayName: Creation quota
+    description: Balance of the API creation quota of the account that owns the API key.
+  - name: Templates
+    x-displayName: Style templates
+    description: Style templates of the account that owns the API key, read-only, to apply to QR codes with `templateId`.
+paths:
+  /qr-codes:
+    get:
+      operationId: listQrCodes
+      tags:
+        - QR Codes
+      summary: List the QR codes of the account
+      description: |
+        Required right: **`QR_READ`**. No quota (read-only).
+
+        Without parameters: all QR codes of the account, active and archived, newest first
+        (descending creation date, then `id`).
+
+        Optional filters that can be combined: status (`active`), type (`type`), search (`q`),
+        creation period (`createdFrom`, `createdBefore`), sort order (`sort`). The search covers
+        the label, the destination and the end of the public URL (`slug`), never the fields of a
+        contact card. An invalid value for one of these parameters is rejected with `400
+        validation_error` (the message names the parameter), never replaced by a default value:
+        an integration never receives, without knowing it, a list other than the one it asked
+        for. A parameter given twice, or present but empty (`?active=`), is rejected the same
+        way; only an empty `cursor` (first page) and `limit` are exceptions. An unknown parameter
+        name is ignored.
+
+        Opaque cursor pagination (`nextCursor`). For the next page, send **the same** filter and
+        sort parameters again, with `cursor`; only `limit` may change. A cursor obtained with
+        other parameters, or by another account, is rejected with `400`. The `accountId` filter
+        of the key remains the only source of what is returned.
+      parameters:
+        - $ref: '#/components/parameters/ActiveFilterParam'
+        - $ref: '#/components/parameters/TypeFilterParam'
+        - $ref: '#/components/parameters/SearchParam'
+        - $ref: '#/components/parameters/CreatedFromParam'
+        - $ref: '#/components/parameters/CreatedBeforeParam'
+        - $ref: '#/components/parameters/SortParam'
+        - $ref: '#/components/parameters/LimitParam'
+        - $ref: '#/components/parameters/CursorParam'
+      responses:
+        '200':
+          description: Page of results.
+          headers:
+            RateLimit-Policy:
+              $ref: '#/components/headers/RateLimitPolicy'
+            RateLimit:
+              $ref: '#/components/headers/RateLimit'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QrCodeListPage'
+        '400':
+          description: |
+            Invalid value for a filter, sort or cursor parameter, repeated parameter, or cursor
+            obtained with other parameters or whose last QR code has since been deleted or renamed
+            (label sort). The message names the parameter, never its value.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenOrPlanRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+    post:
+      operationId: createQrCode
+      tags:
+        - QR Codes
+      summary: Create a QR code
+      description: |
+        Required right: **`QR_CREATE`**. Subject to the commercial creation quota (monthly quota
+        of the plan: 5 with Pro, 100 with Entreprise, then balance of the API creation packs) —
+        checked in the same transaction as the write, against a concurrent creation close to the
+        limit. A creation still counts if the QR code is deleted afterwards.
+
+        `type` is fixed at creation (`URL` or `VCARD`, discriminator of the request body) and can
+        **never** be changed afterwards. For `VCARD`, `phones`/`emails`/`addresses` are each
+        optional — when missing, they are treated as empty arrays (a minimal card with first name
+        and last name is a valid use case).
+
+        **Style**: `templateId` (optional) applies a style template of the account; when missing,
+        the default template of the account if it has one; `null`, no style. A `style` field is
+        rejected with `400`. With required templates (Entreprise): `templateId: null` → `403
+        template_locked`, no `templateId` and no default template → `422 template_required`. See
+        "Style of QR codes and templates". A refusal is not counted in the quota.
+
+        Uses the generic rate limit bucket **and** the dedicated `api-create` bucket (8/min, on
+        top of the generic bucket of 30/min).
+
+        **Retries without duplicates.** With the optional `Idempotency-Key` header, a request
+        sent again after a network failure or a timeout does not create a second QR code and
+        does not use a second creation of the quota. Use a new random value for each creation
+        (UUID v4 recommended) and never put personal data in it. Behaviour:
+        - same value and same body within 24 hours: `201` with the QR code already created, in
+          its current state, and the `Idempotent-Replayed: true` header; nothing is deducted
+          from the quota. This replay uses the rate limit buckets like a creation;
+        - same value with a different body: `422 idempotency_key_mismatch`, nothing is created;
+        - same value while the first request is still in progress: the second one normally waits
+          for it to finish and gets the same QR code; if the wait is too long,
+          `409 idempotency_in_progress` with `Retry-After`;
+        - the QR code created with this value has been deleted since: `410 resource_deleted`,
+          nothing is created again;
+        - a refused request (`400`, `403`, `429`, server error) is not kept: the same value can be
+          used again once the problem is fixed;
+        - after 24 hours, the value is forgotten: a new request with the same value creates a new QR
+          code and uses a creation.
+
+        The `Idempotency-Key` value is specific to each API key: the same value sent with another API key creates
+        another QR code. Only non-reversible fingerprints of the value and of the body are stored,
+        with the identifier of the QR code created, and taken into account for 24 hours.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKeyHeader'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QrCodeCreateInput'
+      responses:
+        '201':
+          description: QR code created, or creation replayed with the same `Idempotency-Key`.
+          headers:
+            RateLimit-Policy:
+              $ref: '#/components/headers/RateLimitPolicy'
+            RateLimit:
+              $ref: '#/components/headers/RateLimit'
+            Idempotent-Replayed:
+              description: |
+                `true` when the response replays a creation already made with the same
+                `Idempotency-Key` (no new creation, no quota used). Absent otherwise.
+              schema:
+                type: string
+                enum:
+                  - 'true'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QrCodeApiDto'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenOrTemplateLocked'
+        '404':
+          description: Template `templateId` missing, or belonging to another account (never distinguished from a plain absence).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundError'
+        '409':
+          $ref: '#/components/responses/IdempotencyInProgress'
+        '410':
+          $ref: '#/components/responses/ResourceDeleted'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '422':
+          $ref: '#/components/responses/IdempotencyKeyMismatchOrTemplateRequired'
+        '429':
+          $ref: '#/components/responses/RateLimitedOrQuotaExceeded'
+  /qr-codes/{id}:
+    get:
+      operationId: getQrCode
+      tags:
+        - QR Codes
+      summary: Get a QR code
+      description: |
+        Required right: **`QR_READ`**. No quota.
+      parameters:
+        - $ref: '#/components/parameters/QrCodeIdParam'
+      responses:
+        '200':
+          description: QR code found.
+          headers:
+            RateLimit-Policy:
+              $ref: '#/components/headers/RateLimitPolicy'
+            RateLimit:
+              $ref: '#/components/headers/RateLimit'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QrCodeApiDto'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenOrPlanRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+    patch:
+      operationId: updateQrCode
+      tags:
+        - QR Codes
+      summary: Partially update a QR code
+      description: |
+        Required right: **`QR_UPDATE`**. No creation quota: neither an update nor a reactivation
+        (`active: true`) uses up a credit.
+
+        **Archiving and reactivating**: `active: false` archives the QR code — its public redirect
+        then answers `404` ("QR code introuvable ou désactivé."), exactly as after archiving it
+        from the dashboard — and `active: true` reactivates it. `active` must be a JSON boolean: `"false"`,
+        `0` or `null` are refused with `400 validation_error`. If the body only contains `active`
+        and the QR code is already in the requested state, the response is `200` with nothing
+        written (`updatedAt` unchanged).
+        `active` can be combined with the other fields: the whole body is validated before
+        anything is written, then applied in one go — a `400` error applies nothing, neither the
+        archiving nor the other fields.
+
+        `type` can **never** be changed (a `"type"` key in the body is silently ignored, it is
+        never a `400` error) — it is always the type already stored that determines which fields
+        of the request body below actually apply. Fields that do not concern the existing type
+        of the resource are silently ignored in the same way (never rejected).
+
+        Semantics of a partial PATCH: a field missing from the JSON body leaves the current value
+        unchanged. For `organization`/`jobTitle`/`website` (VCARD), a field that is **present**
+        with an empty string explicitly clears the value (set to `null`) — what counts is its
+        presence in the JSON body, not only its value. For `phones`/`emails`/`addresses`
+        (VCARD), an array that is **present** (even empty) replaces the whole category.
+
+        **Style**: `templateId` applies the current style of a template of the account (even if
+        the QR code is already linked to this template); `null` removes the style; when missing,
+        the style does not change. A `style` field is rejected with `400`. With required templates
+        (Entreprise), `templateId: null` is rejected with `403 template_locked`; a QR code whose
+        style does not come from a template can still be updated without `templateId`. A template
+        that cannot be found returns `404 not_found`, and nothing is written, neither the style
+        nor the other fields.
+      parameters:
+        - $ref: '#/components/parameters/QrCodeIdParam'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/QrCodeUpdateInput'
+      responses:
+        '200':
+          description: QR code updated.
+          headers:
+            RateLimit-Policy:
+              $ref: '#/components/headers/RateLimitPolicy'
+            RateLimit:
+              $ref: '#/components/headers/RateLimit'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QrCodeApiDto'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenOrTemplateLocked'
+        '404':
+          description: QR code, or `templateId` template, missing or belonging to another account (never distinguished from a plain absence).
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NotFoundError'
+        '413':
+          $ref: '#/components/responses/PayloadTooLarge'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+    delete:
+      operationId: deleteQrCode
+      tags:
+        - QR Codes
+      summary: Permanently delete a QR code
+      description: |
+        Required right: **`QR_DELETE`**. No quota. Deleting does not give the creation back to
+        the monthly quota.
+
+        **Actual** deletion (not archiving): the phones, emails, addresses and daily statistics
+        of the QR code are deleted with it, and its slug is permanently retired at the same time
+        — a medium already printed with this slug never starts pointing to a different QR code
+        created later.
+      parameters:
+        - $ref: '#/components/parameters/QrCodeIdParam'
+      responses:
+        '204':
+          description: QR code deleted, no response body.
+          headers:
+            RateLimit-Policy:
+              $ref: '#/components/headers/RateLimitPolicy'
+            RateLimit:
+              $ref: '#/components/headers/RateLimit'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenOrPlanRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /qr-codes/{id}/stats:
+    get:
+      operationId: getQrCodeStats
+      tags:
+        - QR Codes
+      summary: Get the scan statistics of a QR code
+      description: |
+        Required right: **`STATS_READ`**. No quota.
+
+        `dailyStats` may have gaps: only the days with at least one scan have an entry (days
+        without a scan are not filled with 0, unlike the dashboard chart) — an API integrator
+        consumes raw data, not a presentation. Window limited to the history of the Pro and
+        Entreprise plans (15 months) — access to the API itself is only
+        possible with a Pro or Entreprise plan.
+      parameters:
+        - $ref: '#/components/parameters/QrCodeIdParam'
+      responses:
+        '200':
+          description: Statistics of the QR code.
+          headers:
+            RateLimit-Policy:
+              $ref: '#/components/headers/RateLimitPolicy'
+            RateLimit:
+              $ref: '#/components/headers/RateLimit'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/StatsApiDto'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenOrPlanRequired'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /qr-codes/{id}/image:
+    get:
+      operationId: getQrCodeImage
+      tags:
+        - QR Codes
+      summary: Get the image of a QR code (PNG or SVG)
+      description: |
+        Required right: **`QR_READ`**. No quota.
+
+        Returns the image file of the QR code, rendered on the server with its **effective
+        style** (see "Style of QR codes and templates"): same drawing as the dashboard (same
+        modules, shapes and logo area), margin of 4 modules, error correction level M, or H with a
+        logo. A QR code without style is rendered black on white. `style=none` gives the standard
+        rendering, without the style of the QR code, except with required templates
+        (`403 template_locked`).
+
+        The encoded content is the public URL of the QR code (`publicUrl` of
+        `GET /qr-codes/{id}`): on the custom domain of the account if it is active, on the
+        standard domain otherwise. The image is served even if the QR code is deactivated
+        (`active: false`).
+
+        The file is returned as an attachment (`Content-Disposition: attachment`), named
+        `qr-suisse-<slug>.png` or `qr-suisse-<slug>.svg`. The response carries an `ETag`:
+        sending its value back in `If-None-Match` returns `304 Not Modified` without a body if
+        the image has not changed (the call is still authenticated, counted in the generic rate
+        limit bucket and logged, but not in the bucket dedicated to PNG renders).
+
+        Rate limiting: on top of the generic bucket (30 requests / 60 s per key), each PNG render
+        uses the dedicated bucket of **10 renders / 60 s per account**, shared by all the keys of
+        the account. SVG renders do not use this dedicated bucket. Only a few styled images are
+        prepared at the same time: beyond that, `503 render_busy` with `Retry-After` (the refused
+        render counts in the dedicated bucket).
+        The `ETag` changes in particular when the custom domain of the account is activated or
+        deactivated, and when the effective style changes (template applied, change of plan).
+      parameters:
+        - $ref: '#/components/parameters/QrCodeIdParam'
+        - name: format
+          in: query
+          required: false
+          description: |
+            Image format, in lower case. Any other value returns `400 validation_error` (never a
+            silent fallback to another format).
+          schema:
+            type: string
+            enum:
+              - png
+              - svg
+            default: png
+        - name: size
+          in: query
+          required: false
+          description: |
+            PNG only: side of the square in pixels, margin included, integer from 128 to 1024
+            (at least 256 for a QR code with a logo). A non-integer or out-of-range value returns
+            `400 validation_error`. Ignored for SVG
+            (vector, can be resized without loss — the format to prefer for large-format
+            printing).
+          schema:
+            type: integer
+            minimum: 128
+            maximum: 1024
+            default: 1024
+        - name: If-None-Match
+          in: header
+          required: false
+          description: '`ETag` value obtained from a previous call.'
+          schema:
+            type: string
+        - name: style
+          in: query
+          required: false
+          description: |
+            `none`: standard rendering (black on white, squares, no logo), without the style of the
+            QR code. Missing: effective style of the QR code. Any other value, and a repeated
+            `style`, return `400 validation_error`. With required templates (Entreprise):
+            `403 template_locked`.
+          schema:
+            type: string
+            enum:
+              - none
+      responses:
+        '200':
+          description: Image of the QR code.
+          headers:
+            RateLimit-Policy:
+              $ref: '#/components/headers/RateLimitPolicy'
+            RateLimit:
+              $ref: '#/components/headers/RateLimit'
+            ETag:
+              description: Fingerprint of the image (format, size, encoded content and effective style).
+              schema:
+                type: string
+            Content-Disposition:
+              description: '`attachment; filename="qr-suisse-<slug>.<png|svg>"`'
+              schema:
+                type: string
+            Cache-Control:
+              description: '`private, no-cache` — authenticated response, never stored in a shared cache, revalidated on every use.'
+              schema:
+                type: string
+          content:
+            image/png:
+              schema:
+                type: string
+                format: binary
+            image/svg+xml:
+              schema:
+                type: string
+        '304':
+          description: The image has not changed since the `ETag` sent in `If-None-Match` — no body.
+          headers:
+            RateLimit-Policy:
+              $ref: '#/components/headers/RateLimitPolicy'
+            RateLimit:
+              $ref: '#/components/headers/RateLimit'
+            ETag:
+              description: Fingerprint of the image, identical to the one sent.
+              schema:
+                type: string
+        '400':
+          description: Invalid `format`, `size` or `style` parameter, repeated `style`, or `size` below 256 for a QR code with a logo.
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ValidationError'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenOrTemplateLocked'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '429':
+          description: |
+            `rate_limited` — generic bucket exceeded (30 requests / 60 s per API key), too many
+            requests refused with `401` from the same IP address (60 / 60 s, or 300 / 60 s per
+            IPv6 /48 network), or, for the PNG format, bucket dedicated to renders exceeded
+            (10 renders / 60 s per account).
+          headers:
+            Retry-After:
+              $ref: '#/components/headers/RetryAfter'
+            RateLimit-Policy:
+              $ref: '#/components/headers/RateLimitPolicy'
+            RateLimit:
+              $ref: '#/components/headers/RateLimit'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RateLimitedError'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/RenderBusy'
+  /usage:
+    get:
+      operationId: getUsage
+      tags:
+        - Usage
+      summary: Get the API creation quota of the account
+      description: |
+        Required right: **`QR_CREATE`**. No quota: this read does not use any creation.
+
+        Returns the figures shown at the same moment on the "API keys" screen of the dashboard,
+        for the account that owns the key: API creations in the current UTC calendar month,
+        monthly quota of the plan, credits remaining in the API creation packs and reset date of
+        the monthly quota. A successful creation increases `used` by 1; a deletion does not
+        lower it. Beyond the monthly quota, each creation also uses a pack credit.
+
+        Indicative values: a creation made at the same moment with another key of the account
+        can make them inaccurate as soon as they are read. Only `POST /qr-codes` checks the quota
+        with certainty (see "Commercial creation quota").
+      parameters: []
+      responses:
+        '200':
+          description: API creation quota of the account.
+          headers:
+            RateLimit-Policy:
+              $ref: '#/components/headers/RateLimitPolicy'
+            RateLimit:
+              $ref: '#/components/headers/RateLimit'
+            Cache-Control:
+              description: '`no-store` — the response changes with every creation, it is never cached.'
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UsageApiDto'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenOrPlanRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+  /templates:
+    get:
+      operationId: listTemplates
+      tags:
+        - Templates
+      summary: List the style templates of the account
+      description: |
+        Required right: **`QR_READ`**. No quota (read-only).
+
+        All the style templates of the account, in alphabetical order of their name, with their
+        `id` to pass in `templateId` (`POST /qr-codes`, `PATCH /qr-codes/{id}`). Templates are
+        created, changed and deleted in the dashboard only.
+
+        No pagination: an account has at most 100 templates. `nextCursor` is always `null`.
+
+        `style` is the style that the template gives with the current plan of the account (shapes
+        with Pro and Entreprise, logo with Entreprise); a logo is only indicated by `hasLogo`.
+      parameters: []
+      responses:
+        '200':
+          description: Templates of the account.
+          headers:
+            RateLimit-Policy:
+              $ref: '#/components/headers/RateLimitPolicy'
+            RateLimit:
+              $ref: '#/components/headers/RateLimit'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/QrTemplateList'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/ForbiddenOrPlanRequired'
+        '429':
+          $ref: '#/components/responses/RateLimited'
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: qrs_live_<apiKeyId>.<secret>
+      description: |
+        Opaque two-part token, **not a JWT**: `qrs_live_<apiKeyId>.<secret>`, sent in
+        `Authorization: Bearer <token>`.
+  parameters:
+    QrCodeIdParam:
+      name: id
+      in: path
+      required: true
+      description: Identifier (`cuid`) of the QR code.
+      schema:
+        type: string
+    LimitParam:
+      name: limit
+      in: query
+      required: false
+      description: |
+        Maximum number of items per page. Default 20. A missing, non-integer or ≤ 0 value falls
+        back silently to the default (convenience parameter, never a `400` error); a value above
+        100 is capped at 100.
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    CursorParam:
+      name: cursor
+      in: query
+      required: false
+      description: |
+        Value of `nextCursor` received with the previous page, to send back as is with the same
+        filter and sort parameters. Opaque value: do not infer anything from it, its format may
+        change. Missing for the first page. A cursor that is invalid, obtained with other
+        parameters or by another account is rejected with `400`. The former v1.0 cursor (the
+        `id` of the last item) remains accepted throughout v1, for the list without filter or
+        sort.
+      schema:
+        type: string
+        maxLength: 512
+    ActiveFilterParam:
+      name: active
+      in: query
+      required: false
+      description: |
+        `true`: active QR codes only; `false`: archived QR codes only. Missing: both.
+        Exactly `true` or `false`, in lower case.
+      schema:
+        type: string
+        enum:
+          - 'true'
+          - 'false'
+    TypeFilterParam:
+      name: type
+      in: query
+      required: false
+      description: |
+        One or more types separated by commas (at most 8 values, upper or lower case): `url` (all
+        links, `type` `URL`), `web` (web page), `email` (`mailto:` destination), `phone`
+        (`tel:`), `sms` (`sms:`), `ftp` (`ftp:`), `calendar` (calendar event), `vcard` (contact
+        card). A QR code is returned if it is of one of the given types.
+      style: form
+      explode: false
+      schema:
+        type: array
+        maxItems: 8
+        items:
+          type: string
+          enum:
+            - url
+            - web
+            - email
+            - phone
+            - sms
+            - ftp
+            - calendar
+            - vcard
+      example:
+        - vcard
+        - email
+    SearchParam:
+      name: q
+      in: query
+      required: false
+      description: |
+        Search in the label, the destination and the end of the public URL (`slug`), ignoring
+        case and accents ("geneve" finds "Genève"). Never in the fields of a contact card. 1 to
+        100 characters once leading and trailing spaces are removed, no control character; `%`
+        and `_` are searched literally.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 100
+    CreatedFromParam:
+      name: createdFrom
+      in: query
+      required: false
+      description: |
+        QR codes created from this date, included. ISO 8601: `YYYY-MM-DD` (midnight UTC) or
+        date-time with `Z` or an offset. In the URL, encode the `+` of an offset as `%2B`
+        (`createdFrom=2026-10-01T08:00:00%2B02:00`) or use `Z`
+        (`createdFrom=2026-10-01T06:00:00Z`); an unencoded `+`, received as a space, is also
+        accepted right before the offset. Year from 1970 to 9999, computed in UTC once the offset
+        is applied; a date that does not exist (`2026-02-30`) or is outside this range is rejected
+        with `400 validation_error`.
+      schema:
+        type: string
+      example: '2026-10-01'
+    CreatedBeforeParam:
+      name: createdBefore
+      in: query
+      required: false
+      description: |
+        QR codes created before this date, excluded (same format as `createdFrom`). With
+        `createdFrom=2026-10-01&createdBefore=2026-11-01`: the whole month of October (UTC).
+        `createdFrom` must be earlier than `createdBefore`.
+      schema:
+        type: string
+      example: '2026-11-01'
+    SortParam:
+      name: sort
+      in: query
+      required: false
+      description: |
+        Order of the list: `created_desc` (default, newest first), `created_asc`, `label_asc`
+        (label from A to Z), `label_desc`. Ties are broken by `id`. With `label_asc` or
+        `label_desc`, if the last QR code of a page is deleted or renamed before the next call,
+        the next page returns `400` (start the pagination again from the first page) rather than
+        silently skipping QR codes: for a complete synchronisation,
+        prefer `created_desc` or `created_asc`.
+      schema:
+        type: string
+        enum:
+          - created_desc
+          - created_asc
+          - label_asc
+          - label_desc
+        default: created_desc
+    IdempotencyKeyHeader:
+      name: Idempotency-Key
+      in: header
+      required: false
+      description: |
+        Key chosen by the client for one logical creation, which makes it possible to send the
+        same request again without creating a duplicate (see `POST /qr-codes`). 1 to 255 visible
+        ASCII characters, no spaces; enclosing double quotes are ignored. UUID v4 recommended,
+        no personal data. A malformed value returns `400 validation_error`.
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 255
+        pattern: ^[\x21-\x7E]{1,255}$
+      example: 3f1c2b0e-8a4d-4c6e-9b7a-1d2e3f4a5b6c
+  headers:
+    RateLimitPolicy:
+      description: |
+        Rule of each rate limit bucket consulted by the request (IETF draft
+        `draft-ietf-httpapi-ratelimit-headers`): name of the bucket, `q` requests allowed per
+        window, `w` length of the window in seconds. Absent from a `401`. See "Rate limiting".
+      schema:
+        type: string
+        example: '"api-request";q=30;w=60, "api-create";q=8;w=60'
+    RateLimit:
+      description: |
+        State of each bucket after the request, in the same order as `RateLimit-Policy`: `r`
+        requests remaining, `t` seconds until the window reopens.
+      schema:
+        type: string
+        example: '"api-request";r=29;t=60, "api-create";r=7;t=60'
+    RetryAfter:
+      description: Seconds until the window of the exhausted bucket reopens.
+      schema:
+        type: integer
+        minimum: 1
+  schemas:
+    QrCodeType:
+      type: string
+      enum:
+        - URL
+        - VCARD
+      description: Fixed at creation, can never be changed afterwards.
+    PhoneType:
+      type: string
+      enum:
+        - PROFESSIONAL
+        - MOBILE
+        - FAX
+    EmailType:
+      type: string
+      enum:
+        - PROFESSIONAL
+        - PERSONAL
+    AddressType:
+      type: string
+      enum:
+        - PROFESSIONAL
+        - HOME
+    PhoneEntry:
+      type: object
+      required:
+        - type
+        - value
+      properties:
+        type:
+          $ref: '#/components/schemas/PhoneType'
+        value:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: Phone number as entered (no normalised format imposed).
+      description: At most 3 phone numbers per VCARD QR code.
+    EmailEntry:
+      type: object
+      required:
+        - type
+        - value
+      properties:
+        type:
+          $ref: '#/components/schemas/EmailType'
+        value:
+          type: string
+          format: email
+          maxLength: 255
+      description: At most 2 email addresses per VCARD QR code.
+    AddressEntry:
+      type: object
+      required:
+        - type
+      properties:
+        type:
+          $ref: '#/components/schemas/AddressType'
+        street:
+          type: string
+          maxLength: 255
+        complement:
+          type: string
+          maxLength: 255
+        postalCode:
+          type: string
+          maxLength: 10
+        city:
+          type: string
+          maxLength: 255
+      description: |
+        At most 2 postal addresses per VCARD QR code. The 4 fields are each
+        optional (none is required for a valid entry).
+    VCardData:
+      type: object
+      required:
+        - firstName
+        - lastName
+        - phones
+        - emails
+        - addresses
+      properties:
+        firstName:
+          type: string
+          minLength: 1
+          maxLength: 255
+        lastName:
+          type: string
+          minLength: 1
+          maxLength: 255
+        organization:
+          type: string
+          maxLength: 255
+        jobTitle:
+          type: string
+          maxLength: 255
+        website:
+          type: string
+          maxLength: 255
+        phones:
+          type: array
+          items:
+            $ref: '#/components/schemas/PhoneEntry'
+          maxItems: 3
+        emails:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailEntry'
+          maxItems: 2
+        addresses:
+          type: array
+          items:
+            $ref: '#/components/schemas/AddressEntry'
+          maxItems: 2
+      description: |
+        Present only in `QrCodeApiDto.vcard` for `type === "VCARD"`. `organization`/
+        `jobTitle`/`website` are left out of the response when they are not filled in (never an
+        explicit `null`) — an external integrator tests whether the key is present, not its
+        value.
+    QrCodeApiDto:
+      type: object
+      required:
+        - id
+        - type
+        - label
+        - active
+        - scanCount
+        - slug
+        - publicUrl
+        - createdAt
+        - updatedAt
+        - templateId
+        - style
+      properties:
+        id:
+          type: string
+          description: Identifier (`cuid`) of the QR code.
+        type:
+          $ref: '#/components/schemas/QrCodeType'
+        label:
+          type: string
+        active:
+          type: boolean
+        scanCount:
+          type: integer
+          description: Total number of scans since creation.
+        slug:
+          type: string
+        publicUrl:
+          type: string
+          format: uri
+          description: |
+            Full public redirect URL (custom domain of the account if it is active, standard
+            domain otherwise) — never stored as is, always computed from the current state of
+            the account.
+        createdAt:
+          type: string
+          format: date-time
+        updatedAt:
+          type: string
+          format: date-time
+        templateId:
+          type:
+            - string
+            - 'null'
+          description: Style template whose style the QR code received (`GET /templates`), `null` if none.
+        style:
+          $ref: '#/components/schemas/QrStyle'
+        destinationUrl:
+          type: string
+          format: uri
+          description: Present only for `type === "URL"`, and only if it is filled in.
+        vcard:
+          allOf:
+            - $ref: '#/components/schemas/VCardData'
+          description: Present only for `type === "VCARD"`.
+      example:
+        id: cm2f8k3qz0001xyz9abcd1234
+        type: URL
+        label: Affiche salle d'attente
+        active: true
+        scanCount: 42
+        slug: AbC123_-xy
+        publicUrl: https://app.qrsuisse.ch/r/AbC123_-xy
+        createdAt: '2026-10-01T08:30:00.000Z'
+        updatedAt: '2026-10-12T14:05:00.000Z'
+        templateId: cm2f9a7tp0003xyz9abcd5678
+        style:
+          foreground: '#0B3D5C'
+          background: '#FFFFFF'
+          moduleShape: ROUNDED
+          eyeShape: ROUNDED
+          hasLogo: false
+        destinationUrl: https://www.exemple.ch/rendez-vous
+      description: |
+        Public representation of a QR code: only the fields below are returned, no internal
+        account data.
+    QrCodeListPage:
+      type: object
+      required:
+        - data
+        - nextCursor
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/QrCodeApiDto'
+        nextCursor:
+          type:
+            - string
+            - 'null'
+          description: |
+            Opaque cursor to pass as `?cursor`, with the same filter and sort parameters, to get
+            the next page; `null` if this is the last page.
+    TemplateIdInput:
+      type:
+        - string
+        - 'null'
+      maxLength: 40
+      pattern: ^[a-z0-9]{1,40}$
+      description: |
+        Identifier of a style template of the account (`GET /templates`), whose style is applied
+        to the QR code; `null`: no style. See "Style of QR codes and templates".
+    QrStyle:
+      type: object
+      required:
+        - foreground
+        - background
+        - moduleShape
+        - eyeShape
+        - hasLogo
+      additionalProperties: false
+      properties:
+        foreground:
+          type: string
+          pattern: ^#[0-9A-F]{6}$
+          description: Colour of the modules, `#RRGGBB` in upper case.
+        background:
+          type: string
+          pattern: ^#[0-9A-F]{6}$
+          description: Colour of the background, margin included, `#RRGGBB` in upper case.
+        moduleShape:
+          type: string
+          enum:
+            - SQUARE
+            - ROUNDED
+            - DOT
+          description: Shape of the modules — squares, rounded or dots.
+        eyeShape:
+          type: string
+          enum:
+            - SQUARE
+            - ROUNDED
+            - ROUND_CENTER
+          description: Shape of the three finder corners — squares, rounded or round centre.
+        hasLogo:
+          type: boolean
+          description: '`true` if the image carries a logo in the centre. The logo itself is never returned by the API.'
+      example:
+        foreground: '#0B3D5C'
+        background: '#FFFFFF'
+        moduleShape: ROUNDED
+        eyeShape: ROUNDED
+        hasLogo: false
+      description: |
+        Effective style: the one the image draws with the current plan of the account (shapes with
+        Pro and Entreprise, logo with Entreprise). Without style: `#000000` on `#FFFFFF`, `SQUARE`,
+        `SQUARE`, no logo. Read-only: a style is never sent, only a `templateId`.
+    QrTemplateApiDto:
+      type: object
+      required:
+        - id
+        - name
+        - isDefault
+        - style
+      properties:
+        id:
+          type: string
+          description: Identifier of the template, to pass in `templateId`.
+        name:
+          type: string
+          maxLength: 60
+        isDefault:
+          type: boolean
+          description: '`true` for the default template of the account, applied to a creation without `templateId`.'
+        style:
+          $ref: '#/components/schemas/QrStyle'
+      example:
+        id: cm2f9a7tp0003xyz9abcd5678
+        name: Affiches
+        isDefault: true
+        style:
+          foreground: '#0B3D5C'
+          background: '#FFFFFF'
+          moduleShape: ROUNDED
+          eyeShape: ROUNDED
+          hasLogo: false
+      description: Style template of the account, read-only.
+    QrTemplateList:
+      type: object
+      required:
+        - data
+        - nextCursor
+      properties:
+        data:
+          type: array
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/QrTemplateApiDto'
+        nextCursor:
+          type: 'null'
+          description: Always `null` (no pagination, at most 100 templates).
+    QrCodeCreateUrlInput:
+      type: object
+      required:
+        - type
+        - label
+        - destinationUrl
+      properties:
+        type:
+          type: string
+          enum:
+            - URL
+        label:
+          type: string
+          minLength: 1
+          maxLength: 255
+        destinationUrl:
+          type: string
+          maxLength: 2048
+          description: |
+            Destination URL — accepted protocols: `http:`/`https:` (no further restriction),
+            `mailto:` (local part before a possible `?` validated as an e-mail address),
+            `tel:`/`sms:` (digits/spaces/`+`/`-`/parentheses only, 4 to 20 characters, `*`/`#`
+            explicitly forbidden — risk of USSD code), `ftp:` (plain-text credentials in the
+            authority forbidden). No control character (literal or encoded as `%XX`).
+        templateId:
+          $ref: '#/components/schemas/TemplateIdInput'
+      example:
+        type: URL
+        label: Affiche salle d'attente
+        destinationUrl: https://www.exemple.ch/rendez-vous
+      description: Body of `POST /qr-codes` for a QR code of type `URL`.
+    QrCodeCreateVcardInput:
+      type: object
+      required:
+        - type
+        - label
+        - firstName
+        - lastName
+      properties:
+        type:
+          type: string
+          enum:
+            - VCARD
+        label:
+          type: string
+          minLength: 1
+          maxLength: 255
+        firstName:
+          type: string
+          minLength: 1
+          maxLength: 255
+        lastName:
+          type: string
+          minLength: 1
+          maxLength: 255
+        organization:
+          type: string
+          maxLength: 255
+        jobTitle:
+          type: string
+          maxLength: 255
+        website:
+          type: string
+          maxLength: 255
+        phones:
+          type: array
+          items:
+            $ref: '#/components/schemas/PhoneEntry'
+          maxItems: 3
+          default: []
+        emails:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailEntry'
+          maxItems: 2
+          default: []
+        addresses:
+          type: array
+          items:
+            $ref: '#/components/schemas/AddressEntry'
+          maxItems: 2
+          default: []
+        templateId:
+          $ref: '#/components/schemas/TemplateIdInput'
+      example:
+        type: VCARD
+        label: Carte de visite Dr Muster
+        firstName: Anna
+        lastName: Muster
+        organization: Cabinet Muster
+        phones:
+          - type: PROFESSIONAL
+            value: +41 27 123 45 67
+        emails:
+          - type: PROFESSIONAL
+            value: anna.muster@exemple.ch
+      description: |
+        Body of `POST /qr-codes` for a QR code of type `VCARD`. Only `label`/`firstName`/
+        `lastName` are mandatory — a minimal card (just a name) is a valid use case;
+        missing `phones`/`emails`/`addresses` are equivalent to an empty array.
+    QrCodeCreateInput:
+      oneOf:
+        - $ref: '#/components/schemas/QrCodeCreateUrlInput'
+        - $ref: '#/components/schemas/QrCodeCreateVcardInput'
+      discriminator:
+        propertyName: type
+        mapping:
+          URL: '#/components/schemas/QrCodeCreateUrlInput'
+          VCARD: '#/components/schemas/QrCodeCreateVcardInput'
+      description: |
+        Union discriminated by `type`, fixed at creation — same validation rules as the
+        dashboard (reused as is, no parallel schema).
+    QrCodeUpdateInput:
+      type: object
+      properties:
+        active:
+          type: boolean
+          description: '`false` archives the QR code, `true` reactivates it. Strict JSON boolean, applies to both types.'
+        label:
+          type: string
+          minLength: 1
+          maxLength: 255
+        destinationUrl:
+          type: string
+          maxLength: 2048
+          description: Applies only if the existing resource is of type `URL` — see the description of the operation.
+        firstName:
+          type: string
+          minLength: 1
+          maxLength: 255
+        lastName:
+          type: string
+          minLength: 1
+          maxLength: 255
+        organization:
+          type: string
+          maxLength: 255
+          description: An empty string, if the field is present, explicitly clears the value (`null`).
+        jobTitle:
+          type: string
+          maxLength: 255
+          description: An empty string, if the field is present, explicitly clears the value (`null`).
+        website:
+          type: string
+          maxLength: 255
+          description: An empty string, if the field is present, explicitly clears the value (`null`).
+        phones:
+          type: array
+          items:
+            $ref: '#/components/schemas/PhoneEntry'
+          maxItems: 3
+          description: If present (even empty), replaces the whole category.
+        emails:
+          type: array
+          items:
+            $ref: '#/components/schemas/EmailEntry'
+          maxItems: 2
+          description: If present (even empty), replaces the whole category.
+        addresses:
+          type: array
+          items:
+            $ref: '#/components/schemas/AddressEntry'
+          maxItems: 2
+          description: If present (even empty), replaces the whole category.
+        templateId:
+          $ref: '#/components/schemas/TemplateIdInput'
+      example:
+        destinationUrl: https://www.exemple.ch/nouvelle-page
+      description: |
+        Body of `PATCH /qr-codes/{id}` — **all fields are optional** (partial update semantics:
+        a missing field leaves the current value unchanged). `type` **never** appears in this
+        body (cannot be changed, see the description of the operation): it is the type already
+        stored that determines which of the fields `destinationUrl` (`URL`) or
+        `firstName`/`lastName`/`organization`/`jobTitle`/`website`/`phones`/`emails`/`addresses`
+        (`VCARD`) actually applies — fields that do not concern the existing type are silently
+        ignored, never rejected.
+    StatsApiDto:
+      type: object
+      required:
+        - qrCodeId
+        - scanCountTotal
+        - dailyStats
+      properties:
+        qrCodeId:
+          type: string
+        scanCountTotal:
+          type: integer
+          description: Total number of scans since creation (`QrCode.scanCount`), not only over the `dailyStats` window.
+        dailyStats:
+          type: array
+          items:
+            type: object
+            required:
+              - date
+              - count
+            properties:
+              date:
+                type: string
+                format: date-time
+              count:
+                type: integer
+          description: |
+            One item per day with at least one scan (no filling with 0), limited to the history
+            window of the Pro and Entreprise plans (15 months).
+      example:
+        qrCodeId: cm2f8k3qz0001xyz9abcd1234
+        scanCountTotal: 42
+        dailyStats:
+          - date: '2026-10-11T00:00:00.000Z'
+            count: 5
+          - date: '2026-10-12T00:00:00.000Z'
+            count: 3
+      description: Public DTO of the statistics endpoint.
+    UsageApiDto:
+      type: object
+      required:
+        - used
+        - monthlyQuota
+        - packCreditsRemaining
+        - resetAt
+      additionalProperties: false
+      properties:
+        used:
+          type: integer
+          minimum: 0
+          description: |
+            API creations in the current UTC calendar month, including those that used a pack
+            credit and those of QR codes deleted since. Can therefore exceed `monthlyQuota`.
+        monthlyQuota:
+          type: integer
+          minimum: 0
+          description: Creations included each month in the plan (5 with Pro, 100 with Entreprise).
+        packCreditsRemaining:
+          type: integer
+          minimum: 0
+          description: Credits still available in the API creation packs of the account, all usable packs combined.
+        resetAt:
+          type: string
+          format: date-time
+          description: Reset of the monthly quota — 1st day of the next UTC calendar month, at midnight UTC.
+      example:
+        used: 7
+        monthlyQuota: 5
+        packCreditsRemaining: 98
+        resetAt: '2026-11-01T00:00:00.000Z'
+      description: Public DTO of the quota endpoint — these four fields only.
+    ApiErrorBase:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          enum:
+            - unauthorized
+            - plan_required
+            - forbidden
+            - account_disabled
+            - https_required
+            - not_found
+            - method_not_allowed
+            - validation_error
+            - quota_exceeded
+            - rate_limited
+            - idempotency_key_mismatch
+            - idempotency_in_progress
+            - resource_deleted
+            - payload_too_large
+            - template_locked
+            - template_required
+            - render_busy
+            - internal_error
+        message:
+          type: string
+      description: Shape shared by every error of API v1.
+    UnauthorizedError:
+      allOf:
+        - $ref: '#/components/schemas/ApiErrorBase'
+      example:
+        error: unauthorized
+        message: Authentification invalide ou absente.
+    PlanRequiredError:
+      allOf:
+        - $ref: '#/components/schemas/ApiErrorBase'
+      example:
+        error: plan_required
+        message: Cette fonctionnalité nécessite un plan Pro ou Entreprise.
+    ForbiddenError:
+      allOf:
+        - $ref: '#/components/schemas/ApiErrorBase'
+      example:
+        error: forbidden
+        message: Cette clé API n'a pas le droit requis pour cette opération.
+    AccountDisabledError:
+      allOf:
+        - $ref: '#/components/schemas/ApiErrorBase'
+      example:
+        error: account_disabled
+        message: Ce compte a été suspendu. Contactez le support QR Suisse à l'adresse contact@qrsuisse.ch pour plus d'informations.
+      description: |
+        Account suspended or pending deletion. Depending on the state, `message` (in French) is:
+        - suspended: « Ce compte a été suspendu. Contactez le support QR Suisse à l'adresse
+          contact@qrsuisse.ch pour plus d'informations. » (This account has been suspended.
+          Contact QR Suisse support at contact@qrsuisse.ch for more information.)
+        - pending deletion: « Ce compte est en attente de suppression pour inactivité.
+          Utilisez le lien de récupération reçu par email pour le réactiver. » (This account is
+          pending deletion due to inactivity. Use the recovery link received by e-mail to
+          reactivate it.)
+    HttpsRequiredError:
+      allOf:
+        - $ref: '#/components/schemas/ApiErrorBase'
+      example:
+        error: https_required
+        message: 'L''API n''accepte que HTTPS : la requête n''a pas été traitée. Une clé envoyée en HTTP a circulé en clair, faites-la tourner depuis le tableau de bord.'
+      description: |
+        Request received over HTTP: neither redirected nor processed, before any check of the
+        key. A key sent this way has travelled in clear text and must be rotated.
+    NotFoundError:
+      allOf:
+        - $ref: '#/components/schemas/ApiErrorBase'
+      example:
+        error: not_found
+        message: Ressource introuvable.
+    ValidationError:
+      allOf:
+        - $ref: '#/components/schemas/ApiErrorBase'
+      example:
+        error: validation_error
+        message: 'Champ « label » : Le libellé est requis'
+      description: |
+        `message` repeats the first validation message encountered (e.g. a required field that
+        is missing or too long) — the exact text depends on the field concerned, the `{ error, message }`
+        shape always stays the same. This text is in French and names the field
+        concerned (e.g. "Champ « type » requis : valeurs acceptées URL, VCARD."): only the `error`
+        code is guaranteed.
+    QuotaExceededError:
+      allOf:
+        - $ref: '#/components/schemas/ApiErrorBase'
+        - type: object
+          required:
+            - resetAt
+          properties:
+            resetAt:
+              type: string
+              format: date-time
+              description: 1st day of the next UTC calendar month, at midnight UTC — reset date of the quota.
+      example:
+        error: quota_exceeded
+        message: Quota mensuel de créations API atteint.
+        resetAt: '2026-10-01T00:00:00.000Z'
+    RateLimitedError:
+      allOf:
+        - $ref: '#/components/schemas/ApiErrorBase'
+      example:
+        error: rate_limited
+        message: Trop de requêtes pour cette clé API, réessayez plus tard.
+    IdempotencyKeyMismatchError:
+      allOf:
+        - $ref: '#/components/schemas/ApiErrorBase'
+      example:
+        error: idempotency_key_mismatch
+        message: Cette clé Idempotency-Key a déjà servi pour une requête différente. Utilisez une nouvelle clé pour une nouvelle création.
+    IdempotencyInProgressError:
+      allOf:
+        - $ref: '#/components/schemas/ApiErrorBase'
+      example:
+        error: idempotency_in_progress
+        message: Une requête avec cette clé Idempotency-Key est encore en cours de traitement, réessayez dans un instant.
+    ResourceDeletedError:
+      allOf:
+        - $ref: '#/components/schemas/ApiErrorBase'
+      example:
+        error: resource_deleted
+        message: Le QR code créé avec cette clé Idempotency-Key a été supprimé depuis. Utilisez une nouvelle clé pour une nouvelle création.
+    PayloadTooLargeError:
+      allOf:
+        - $ref: '#/components/schemas/ApiErrorBase'
+      example:
+        error: payload_too_large
+        message: 'Corps de la requête trop volumineux : 64 Kio maximum.'
+    TemplateLockedError:
+      allOf:
+        - $ref: '#/components/schemas/ApiErrorBase'
+      example:
+        error: template_locked
+        message: 'Les modèles sont imposés sur ce compte : « templateId » ne peut pas valoir null (voir GET /templates).'
+      description: |
+        Templates required on the account (Entreprise). Depending on the case, `message` (in
+        French) is:
+        - `POST /qr-codes` or `PATCH /qr-codes/{id}` with `templateId: null`: « Les modèles sont imposés sur ce compte : « templateId » ne peut pas valoir null (voir GET /templates). »
+          (Templates are required on this account: "templateId" cannot be null.)
+        - `GET /qr-codes/{id}/image?style=none`: « Les modèles sont imposés sur ce compte : l'image sans style (style=none) n'est pas disponible. » (Templates are required on this
+          account: the image without style is not available.)
+    TemplateRequiredError:
+      allOf:
+        - $ref: '#/components/schemas/ApiErrorBase'
+      example:
+        error: template_required
+        message: 'Les modèles sont imposés sur ce compte et aucun modèle par défaut n''est défini : indiquez « templateId » (voir GET /templates).'
+    RenderBusyError:
+      allOf:
+        - $ref: '#/components/schemas/ApiErrorBase'
+      example:
+        error: render_busy
+        message: Le serveur prépare déjà d'autres images, réessayez dans un instant.
+    InternalError:
+      allOf:
+        - $ref: '#/components/schemas/ApiErrorBase'
+      example:
+        error: internal_error
+        message: L'image n'a pas pu être générée. Réessayez plus tard ou contactez le support.
+  responses:
+    Unauthorized:
+      description: Missing/malformed `Authorization` header, unknown/revoked/frozen key, or wrong secret.
+      headers:
+        WWW-Authenticate:
+          description: Always `Bearer realm="qrsuisse-api"`, whatever the reason for the refusal.
+          schema:
+            type: string
+            const: Bearer realm="qrsuisse-api"
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/UnauthorizedError'
+    ForbiddenOrPlanRequired:
+      description: |
+        `403` — either the request was sent over HTTP (`https_required`, before any check of the
+        key), or the account is suspended or pending deletion (`account_disabled`, checked first
+        for a valid key), or the account is no longer on a Pro or Entreprise plan
+        (`plan_required`), or the authenticated API key does not have the atomic right required
+        for this operation (`forbidden`).
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/HttpsRequiredError'
+              - $ref: '#/components/schemas/AccountDisabledError'
+              - $ref: '#/components/schemas/PlanRequiredError'
+              - $ref: '#/components/schemas/ForbiddenError'
+    ForbiddenOrTemplateLocked:
+      description: |
+        `403` — the same refusals as for any operation (`https_required`, `account_disabled`,
+        `plan_required`, `forbidden`), or the account's required templates (Entreprise) refuse
+        the request (`template_locked`, see "Style of QR codes and templates").
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/HttpsRequiredError'
+              - $ref: '#/components/schemas/AccountDisabledError'
+              - $ref: '#/components/schemas/PlanRequiredError'
+              - $ref: '#/components/schemas/ForbiddenError'
+              - $ref: '#/components/schemas/TemplateLockedError'
+    NotFound:
+      description: Resource missing, or belonging to another account (never distinguished from a plain absence).
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/NotFoundError'
+    ValidationError:
+      description: Request body missing, not JSON, or not complying with the validation rules of the field concerned.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ValidationError'
+    RateLimited:
+      description: |
+        Generic rate limit bucket exceeded (30 requests / 60 s per API key), or too many
+        requests refused with `401` from the same IP address (60 / 60 s, or 300 / 60 s per IPv6
+        /48 network).
+      headers:
+        Retry-After:
+          $ref: '#/components/headers/RetryAfter'
+        RateLimit-Policy:
+          $ref: '#/components/headers/RateLimitPolicy'
+        RateLimit:
+          $ref: '#/components/headers/RateLimit'
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/RateLimitedError'
+    RateLimitedOrQuotaExceeded:
+      description: |
+        `429` — either a rate limit bucket exceeded (generic 30/min, dedicated to creation
+        8/min, or 60 `401` refusals/min from the same IP address, 300/min per IPv6 /48 network —
+        `rate_limited`), or the commercial monthly quota of API creations reached
+        (`quota_exceeded`, before any write to the database).
+      headers:
+        Retry-After:
+          description: |
+            Seconds to wait before trying again: reopening of the window of the exhausted bucket
+            for `rate_limited`, time remaining until `resetAt` for `quota_exceeded`.
+          schema:
+            type: integer
+            minimum: 1
+        RateLimit-Policy:
+          $ref: '#/components/headers/RateLimitPolicy'
+        RateLimit:
+          $ref: '#/components/headers/RateLimit'
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/RateLimitedError'
+              - $ref: '#/components/schemas/QuotaExceededError'
+    IdempotencyKeyMismatch:
+      description: |
+        `422` — the same `Idempotency-Key` has already been used, within the last 24 hours, for a
+        request with a different body. Nothing is created, no quota is used.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/IdempotencyKeyMismatchError'
+    IdempotencyKeyMismatchOrTemplateRequired:
+      description: |
+        `422` — either the same `Idempotency-Key` has already been used, within the last 24 hours,
+        for a request with a different body (`idempotency_key_mismatch`), or templates are
+        required on the account and it has no default template (`template_required`). Nothing is
+        created, no quota is used.
+      content:
+        application/json:
+          schema:
+            oneOf:
+              - $ref: '#/components/schemas/IdempotencyKeyMismatchError'
+              - $ref: '#/components/schemas/TemplateRequiredError'
+    IdempotencyInProgress:
+      description: |
+        `409` — a request with the same `Idempotency-Key` is still in progress and waiting for
+        its result took too long. Nothing is created by this request: send it again after
+        `Retry-After`, it will get the QR code created by the first one.
+      headers:
+        Retry-After:
+          description: Recommended delay before a new attempt, in seconds.
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/IdempotencyInProgressError'
+    ResourceDeleted:
+      description: |
+        `410` — the QR code created with this `Idempotency-Key` has been deleted since. Nothing
+        is created again: use a new key for a new creation.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ResourceDeletedError'
+    PayloadTooLarge:
+      description: |
+        `413` — request body larger than 64 KiB (65,536 bytes): the request is refused, nothing is
+        written.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/PayloadTooLargeError'
+    RenderBusy:
+      description: |
+        `503` — the server is already preparing other styled images. Nothing is queued: try again
+        after `Retry-After`. The refused render counts in the PNG image bucket.
+      headers:
+        Retry-After:
+          description: Recommended delay before a new attempt, in seconds.
+          schema:
+            type: integer
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/RenderBusyError'
+    InternalError:
+      description: |
+        `500` — the image could not be produced. The body gives no technical detail; try again
+        later, then contact support if the error persists.
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/InternalError'

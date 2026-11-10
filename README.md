@@ -17,7 +17,9 @@ l'API QR Suisse au nom d'un utilisateur :
   (la spécification OpenAPI prévalant en cas de doute) ;
 - [`plugin.json`](plugin.json) : manifeste au format [Agent Plugins 1.0.0](https://agent-plugins.org/specification) ;
 - [`skills/qrsuisse-create-qr-code`](skills/qrsuisse-create-qr-code/SKILL.md) : compétence
-  « créer un QR code via l'API » au format [Agent Skills](https://agentskills.io/specification).
+  « créer un QR code via l'API » au format [Agent Skills](https://agentskills.io/specification) ;
+- [`packages/sdk`](packages/sdk) et [`packages/cli`](packages/cli) : SDK TypeScript et CLI de
+  l'API v1 (non publiés), documentés en anglais.
 
 Ce dépôt ne déclare aucun serveur MCP : QR Suisse ne propose pas de serveur MCP. Les agents
 appellent directement l'API REST.
@@ -48,7 +50,9 @@ QR Suisse API on behalf of a user:
   specification prevails in case of doubt);
 - [`plugin.json`](plugin.json): manifest in the [Agent Plugins 1.0.0](https://agent-plugins.org/specification) format;
 - [`skills/qrsuisse-create-qr-code`](skills/qrsuisse-create-qr-code/SKILL.md): "create a QR code
-  through the API" skill in the [Agent Skills](https://agentskills.io/specification) format.
+  through the API" skill in the [Agent Skills](https://agentskills.io/specification) format;
+- [`packages/sdk`](packages/sdk) and [`packages/cli`](packages/cli): TypeScript SDK and CLI for
+  API v1 (not published).
 
 This repository declares no MCP server: QR Suisse does not offer an MCP server. Agents call the
 REST API directly.

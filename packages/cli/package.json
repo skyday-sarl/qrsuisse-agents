@@ -1,0 +1,44 @@
+{
+  "name": "qrsuisse",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Command line interface for the QR Suisse public REST API (v1): list, create, update and archive dynamic QR codes, download their image and read their statistics. JSON output.",
+  "keywords": [
+    "qr-code",
+    "dynamic-qr-code",
+    "qrsuisse",
+    "cli",
+    "rest-api",
+    "switzerland"
+  ],
+  "homepage": "https://www.qrsuisse.ch/en/api-documentation",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/skyday-sarl/qrsuisse-agents.git",
+    "directory": "packages/cli"
+  },
+  "bugs": {
+    "url": "https://github.com/skyday-sarl/qrsuisse-agents/blob/main/SECURITY.md"
+  },
+  "license": "MIT",
+  "author": "Skyday Sàrl (https://www.qrsuisse.ch)",
+  "type": "module",
+  "bin": {
+    "qrsuisse": "./dist/bin.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "@qrsuisse/sdk": "0.1.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "prepack": "npm run build"
+  }
+}
