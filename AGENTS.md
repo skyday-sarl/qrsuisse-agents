@@ -15,7 +15,7 @@ commitment (availability, quotas, features) beyond the Terms and Conditions
 
 - Markdown and JSON, plus a TypeScript SDK (`packages/sdk`) and CLI (`packages/cli`), not
   published on npm. To work on them: `npm install`, `npm run build`, `npm run typecheck`,
-  `npm test` (Node.js 18.17 or later). Their types are generated from `spec/openapi.yaml` with
+  `npm test` (the packages run on Node.js 18.17 or later; the tests need Node.js 20 or later). Their types are generated from `spec/openapi.yaml` with
   `npm run generate` (see `spec/README.md`); never edit `packages/sdk/src/generated/` by hand.
   Never run `npm publish`: publishing is decided by Skyday Sàrl.
 - Do not add an API key, a token, an internal hostname, an IP address or a personal email

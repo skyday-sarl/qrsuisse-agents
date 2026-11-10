@@ -77,8 +77,9 @@ qrsuisse qr get <id> | jq -r .publicUrl
 ### Creating without duplicates
 
 Every `qr create` sends an `Idempotency-Key` header: a new random UUID, or the value of
-`--idempotency-key`. If the creation fails (network error, `409 idempotency_in_progress`...), the
-error printed on stderr contains this `idempotencyKey`. Send the same command again with
+`--idempotency-key`. If the creation fails in a way that can be sent again as is (no answer,
+`429 rate_limited`, `409 idempotency_in_progress`, server error), the error printed on stderr
+contains this `idempotencyKey`. Send the same command again with
 `--idempotency-key <that value>` within 24 hours: you get the QR code already created, without a
 second creation.
 

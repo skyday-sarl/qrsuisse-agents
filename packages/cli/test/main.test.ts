@@ -233,6 +233,13 @@ describe("commands", () => {
     });
   });
 
+  it("qr create: no Idempotency-Key in the error when sending again would not help", async () => {
+    const result = await run(["qr", "create", "--label", "x", "--url", "javascript:alert(1)"], {
+      responses: [jsonResponse({ error: "validation_error", message: "…" }, 400)],
+    });
+    expect(JSON.parse(result.stderr)).toEqual({ error: "validation_error", message: "…", status: 400 });
+  });
+
   it("qr update: archive, reactivate and field changes", async () => {
     const archive = await run(["qr", "update", QR_CODE.id, "--archive"], { responses: [jsonResponse(QR_CODE)] });
     expect(archive.requests[0]).toMatchObject({ method: "PATCH", body: { active: false } });

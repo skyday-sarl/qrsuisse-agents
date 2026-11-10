@@ -376,8 +376,12 @@ function definedFields<T extends Record<string, unknown>>(fields: T): { [K in ke
 
 function reportError(error: unknown, io: CliEnvironment, context: { idempotencyKey: string | undefined; compact: boolean }): number {
   const write = (value: unknown) => io.stderr.write(`${JSON.stringify(value, null, context.compact ? undefined : 2)}\n`);
-  // Only on a failed creation: the key lets the user send the same creation again without a duplicate.
-  const retryHint = context.idempotencyKey === undefined ? {} : { idempotencyKey: context.idempotencyKey };
+  // Only when a failed creation may be sent again as is: with the same key, it cannot create a duplicate.
+  const canBeSentAgain =
+    error instanceof QrSuisseConnectionError ||
+    (error instanceof QrSuisseApiError &&
+      (error.status >= 500 || error.code === "rate_limited" || error.code === "idempotency_in_progress"));
+  const retryHint = context.idempotencyKey !== undefined && canBeSentAgain ? { idempotencyKey: context.idempotencyKey } : {};
 
   if (error instanceof UsageError) {
     io.stderr.write(`qrsuisse: ${error.message}\n`);
