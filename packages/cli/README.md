@@ -105,9 +105,22 @@ printed copies show an error page, the creation is not given back). Archive it w
   { "error": "quota_exceeded", "message": "Quota mensuel de créations API atteint.", "status": 429, "retryAfter": 1728000, "resetAt": "2026-12-01T00:00:00.000Z" }
   ```
 
-  Base your logic on `error`, never on `message` (a French text that may change). No answer at
-  all gives `"error": "connection_error"`.
-- Wrong command line: message on stderr, exit code `2`.
+  Base your logic on `error`, never on `message` (a French text that may change). No complete
+  answer gives `"error": "connection_error"` (with `cause`, for example `ECONNREFUSED`, when
+  known); a redirect gives `"error": "redirect_refused"` (the CLI never follows one, so that the
+  key is not sent elsewhere: check `--base-url`); a successful answer that is not JSON gives
+  `"error": "unexpected_response"`.
+- Error detected by the CLI itself: JSON on stderr, exit code `2`, with one of these codes:
+  `usage_error` (wrong command line), `missing_api_key` (`QRSUISSE_API_KEY` not set),
+  `invalid_argument` (for example a malformed `--idempotency-key`, a blank id or an `http://`
+  address), `file_error` (`--body-file` cannot be read, `--output` cannot be written).
+- With `--retries`, each wait is announced by one JSON line on stderr before it starts:
+
+  ```json
+  {"notice":"retrying","error":"rate_limited","status":429,"delaySeconds":12,"attempt":1,"maxRetries":2}
+  ```
+
+- The CLI never prints the API key, even if a server sends it back in a message.
 
 ## Options common to every command
 

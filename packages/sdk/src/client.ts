@@ -1,4 +1,11 @@
-import { isRecord, QrSuisseApiError, QrSuisseConnectionError } from "./errors.js";
+import {
+  isRecord,
+  QrSuisseApiError,
+  QrSuisseArgumentError,
+  QrSuisseConnectionError,
+  QrSuisseError,
+  QrSuisseRedirectError,
+} from "./errors.js";
 import { parseRateLimitHeaders, parseRetryAfter, type RateLimitState } from "./rate-limit.js";
 import type {
   ListQrCodesParams as GeneratedListQrCodesParams,
@@ -35,6 +42,19 @@ export interface RetryOptions {
   maxRetries?: number;
   /** Longest wait accepted, in seconds. When `Retry-After` is longer, the error is thrown at once. Default 60. */
   maxDelaySeconds?: number;
+  /** Called before each wait, for example to tell the user why the call takes longer. */
+  onRetry?: (retry: RetryNotice) => void;
+}
+
+/** A wait before a new attempt. */
+export interface RetryNotice {
+  /** The error that asks to wait (`rate_limited`, `idempotency_in_progress` or `render_busy`). */
+  error: QrSuisseApiError;
+  /** Seconds before the new attempt (`Retry-After`). */
+  delaySeconds: number;
+  /** Number of the new attempt, from 1 to `maxRetries`. */
+  attempt: number;
+  maxRetries: number;
 }
 
 export interface QrSuisseClientOptions {
@@ -46,11 +66,14 @@ export interface QrSuisseClientOptions {
   apiKey: string;
   /** API address. Default `https://app.qrsuisse.ch/api/v1`. HTTPS only, except on localhost. */
   baseUrl?: string;
-  /** Request timeout in milliseconds. Default 30000. */
+  /** Timeout of each attempt in milliseconds, reading of the response body included. Default 30000. */
   timeoutMs?: number;
   /** Automatic waits and retries on the responses that carry `Retry-After`. Disabled by default. */
   retry?: RetryOptions;
-  /** `fetch` implementation. Default: the global `fetch` (Node.js 18 and later, browsers, Deno, Bun). */
+  /**
+   * `fetch` implementation. Default: the global `fetch` (Node.js 18.17 and later, Deno, Bun).
+   * Server-side only: never ship an API key to a browser, where anyone can read it.
+   */
   fetch?: typeof fetch;
 }
 
@@ -114,6 +137,15 @@ export interface QrCodeImageNotModified extends ApiResponse<null> {
 
 type ImageResult<T> = QrCodeImage<T> | QrCodeImageNotModified;
 
+/** Reads the body of a successful response, within the timeout of the attempt. */
+type ResponseReader<T> = (response: Response) => Promise<T>;
+
+interface Exchange<T> {
+  result: T;
+  response: Response;
+  rateLimit: RateLimitState;
+}
+
 interface RequestDescription {
   method: "GET" | "POST" | "PATCH" | "DELETE";
   path: string;
@@ -138,6 +170,7 @@ export class QrSuisseClient {
   readonly #maxRetries: number;
   readonly #maxRetryDelaySeconds: number;
   readonly #fetch: typeof fetch;
+  readonly #onRetry: ((retry: RetryNotice) => void) | undefined;
 
   constructor(options: QrSuisseClientOptions) {
     this.#apiKey = validateApiKey(options.apiKey);
@@ -145,9 +178,10 @@ export class QrSuisseClient {
     this.#timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
     this.#maxRetries = Math.max(0, Math.floor(options.retry?.maxRetries ?? 0));
     this.#maxRetryDelaySeconds = options.retry?.maxDelaySeconds ?? DEFAULT_MAX_RETRY_DELAY_SECONDS;
+    this.#onRetry = options.retry?.onRetry;
     const fetchImplementation = options.fetch ?? globalThis.fetch;
     if (typeof fetchImplementation !== "function") {
-      throw new TypeError("No fetch implementation available: use Node.js 18 or later, or pass the `fetch` option.");
+      throw new QrSuisseArgumentError("No fetch implementation available: use Node.js 18 or later, or pass the `fetch` option.");
     }
     this.#fetch = fetchImplementation;
   }
@@ -181,7 +215,7 @@ export class QrSuisseClient {
     const headers: Record<string, string> = {};
     if (options.idempotencyKey !== undefined) {
       if (!IDEMPOTENCY_KEY_PATTERN.test(options.idempotencyKey)) {
-        throw new TypeError("idempotencyKey must be 1 to 255 visible ASCII characters, without spaces (UUID v4 recommended).");
+        throw new QrSuisseArgumentError("idempotencyKey must be 1 to 255 visible ASCII characters, without spaces (UUID v4 recommended).");
       }
       headers["Idempotency-Key"] = options.idempotencyKey;
     }
@@ -218,7 +252,10 @@ export class QrSuisseClient {
    * Right `QR_DELETE`.
    */
   async deleteQrCode(id: string, options: RequestOptions = {}): Promise<ApiResponse<null>> {
-    const { response, rateLimit } = await this.#send({ method: "DELETE", path: qrCodePath(id), signal: options.signal });
+    const { response, rateLimit } = await this.#request(
+      { method: "DELETE", path: qrCodePath(id), signal: options.signal },
+      async () => null,
+    );
     return { data: null, status: response.status, headers: response.headers, rateLimit };
   }
 
@@ -243,21 +280,27 @@ export class QrSuisseClient {
     const headers: Record<string, string> = {};
     if (options.ifNoneMatch !== undefined) headers["If-None-Match"] = options.ifNoneMatch;
 
-    const { response, rateLimit } = await this.#send({
-      method: "GET",
-      path: `${qrCodePath(id)}/image`,
-      query,
-      headers,
-      signal: options.signal,
-      accept: "image/png, image/svg+xml, application/json",
-    });
+    const isSvgResponse = (response: Response) =>
+      options.format === "svg" || response.headers.get("content-type")?.startsWith("image/svg+xml") === true;
+    const { result: data, response, rateLimit } = await this.#request(
+      {
+        method: "GET",
+        path: `${qrCodePath(id)}/image`,
+        query,
+        headers,
+        signal: options.signal,
+        accept: "image/png, image/svg+xml, application/json",
+      },
+      async (response): Promise<Uint8Array | string | null> => {
+        if (response.status === 304) return null;
+        return isSvgResponse(response) ? response.text() : new Uint8Array(await response.arrayBuffer());
+      },
+    );
     const etag = response.headers.get("etag") ?? undefined;
-    if (response.status === 304) {
+    if (data === null) {
       return { data: null, status: 304, headers: response.headers, rateLimit, notModified: true, etag };
     }
     const contentType = response.headers.get("content-type") ?? undefined;
-    const isSvg = options.format === "svg" || contentType?.startsWith("image/svg+xml") === true;
-    const data = isSvg ? await response.text() : new Uint8Array(await response.arrayBuffer());
     return {
       data,
       status: response.status,
@@ -281,26 +324,23 @@ export class QrSuisseClient {
   }
 
   async #json<T>(request: RequestDescription): Promise<ApiResponse<T>> {
-    const { response, rateLimit } = await this.#send(request);
-    const data = (await response.json()) as T;
-    return { data, status: response.status, headers: response.headers, rateLimit };
+    const { result, response, rateLimit } = await this.#request(request, (response) => readJson<T>(response));
+    return { data: result, status: response.status, headers: response.headers, rateLimit };
   }
 
-  /** Sends the request, waits and retries if allowed, and turns an error status into a `QrSuisseApiError`. */
-  async #send(request: RequestDescription): Promise<{ response: Response; rateLimit: RateLimitState }> {
+  /** Sends the request, waits and retries if allowed, and throws the API error otherwise. */
+  async #request<T>(request: RequestDescription, read: ResponseReader<T>): Promise<Exchange<T>> {
     const body = request.body === undefined ? undefined : JSON.stringify(request.body);
     for (let attempt = 0; ; attempt++) {
-      const response = await this.#fetchOnce(request, body);
-      const rateLimit = parseRateLimitHeaders(response.headers);
-      if (response.ok || response.status === 304) {
-        return { response, rateLimit };
-      }
-      const error = await toApiError(response, rateLimit);
-      if (attempt < this.#maxRetries && this.#shouldRetry(error)) {
-        await sleep((error.retryAfter ?? 0) * 1000, request.signal);
+      const outcome = await this.#attempt(request, body, read);
+      if (!(outcome instanceof QrSuisseApiError)) return outcome;
+      if (attempt < this.#maxRetries && this.#shouldRetry(outcome)) {
+        const delaySeconds = outcome.retryAfter ?? 0;
+        this.#onRetry?.({ error: outcome, delaySeconds, attempt: attempt + 1, maxRetries: this.#maxRetries });
+        await sleep(delaySeconds * 1000, request.signal);
         continue;
       }
-      throw error;
+      throw outcome;
     }
   }
 
@@ -312,7 +352,15 @@ export class QrSuisseClient {
     return asksToWait && error.retryAfter !== undefined && error.retryAfter <= this.#maxRetryDelaySeconds;
   }
 
-  async #fetchOnce(request: RequestDescription, body: string | undefined): Promise<Response> {
+  /**
+   * One attempt. The timeout covers the whole exchange, reading of the body included. An error
+   * status is returned (not thrown) so that `#request` can decide to retry.
+   */
+  async #attempt<T>(
+    request: RequestDescription,
+    body: string | undefined,
+    read: ResponseReader<T>,
+  ): Promise<Exchange<T> | QrSuisseApiError> {
     const url = new URL(this.baseUrl + request.path);
     if (request.query) url.search = request.query.toString();
 
@@ -330,10 +378,23 @@ export class QrSuisseClient {
     request.signal?.addEventListener("abort", abortFromCaller, { once: true });
     if (request.signal?.aborted) abortFromCaller();
     try {
-      // `redirect: "error"`: the API never redirects; the key must never follow a redirect.
-      return await this.#fetch(url, { method: request.method, headers, body, redirect: "error", signal: timeout.signal });
+      // `redirect: "manual"`: the API never redirects, and the key must never follow a redirect.
+      const response = await this.#fetch(url, { method: request.method, headers, body, redirect: "manual", signal: timeout.signal });
+      if (isRedirect(response)) {
+        throw new QrSuisseRedirectError({
+          method: request.method,
+          path: url.pathname,
+          status: response.status,
+          location: response.headers.get("location") ?? undefined,
+        });
+      }
+      const rateLimit = parseRateLimitHeaders(response.headers);
+      if (response.ok || response.status === 304) {
+        return { result: await read(response), response, rateLimit };
+      }
+      return await toApiError(response, rateLimit);
     } catch (cause) {
-      if (request.signal?.aborted) throw cause;
+      if (cause instanceof QrSuisseError || request.signal?.aborted) throw cause;
       const timedOut = timeout.signal.aborted;
       const reason = timedOut ? `timed out after ${this.#timeoutMs} ms` : "failed";
       throw new QrSuisseConnectionError(`${request.method} ${url.pathname} ${reason}.`, { cause, timedOut });
@@ -344,12 +405,34 @@ export class QrSuisseClient {
   }
 }
 
+function isRedirect(response: Response): boolean {
+  // `opaqueredirect`: some runtimes hide the status of a redirect that is not followed.
+  return response.type === "opaqueredirect" || (response.status >= 300 && response.status < 400 && response.status !== 304);
+}
+
+/** Body of a successful JSON response; a body that is not JSON (proxy, captive portal) gives `unexpected_response`. */
+async function readJson<T>(response: Response): Promise<T> {
+  const text = await response.text();
+  try {
+    return JSON.parse(text) as T;
+  } catch {
+    throw new QrSuisseApiError({
+      status: response.status,
+      code: "unexpected_response",
+      message: `Unexpected ${response.status} response from the QR Suisse API (not JSON).`,
+      body: text,
+      retryAfter: undefined,
+      rateLimit: parseRateLimitHeaders(response.headers),
+    });
+  }
+}
+
 function validateApiKey(apiKey: unknown): string {
   if (typeof apiKey !== "string" || apiKey.trim() === "") {
-    throw new TypeError("apiKey is required: create a key in the QR Suisse dashboard and read it from your configuration.");
+    throw new QrSuisseArgumentError("apiKey is required: create a key in the QR Suisse dashboard and read it from your configuration.");
   }
   if (/\s/.test(apiKey)) {
-    throw new TypeError("apiKey must not contain spaces or line breaks: copy it exactly as shown in the dashboard.");
+    throw new QrSuisseArgumentError("apiKey must not contain spaces or line breaks: copy it exactly as shown in the dashboard.");
   }
   return apiKey;
 }
@@ -359,25 +442,25 @@ function validateBaseUrl(baseUrl: string): string {
   try {
     url = new URL(baseUrl);
   } catch {
-    throw new TypeError(`baseUrl is not a valid URL: ${baseUrl}`);
+    throw new QrSuisseArgumentError(`baseUrl is not a valid URL: ${baseUrl}`);
   }
   if (url.username || url.password) {
-    throw new TypeError("baseUrl must not contain credentials.");
+    throw new QrSuisseArgumentError("baseUrl must not contain credentials.");
   }
   if (url.search || url.hash) {
-    throw new TypeError("baseUrl must not contain a query string or a fragment.");
+    throw new QrSuisseArgumentError("baseUrl must not contain a query string or a fragment.");
   }
   const isLoopback = LOOPBACK_HOSTNAMES.has(url.hostname);
   if (url.protocol !== "https:" && !(url.protocol === "http:" && isLoopback)) {
     // A key sent over HTTP travels in clear text: refuse before sending anything.
-    throw new TypeError("baseUrl must use https:// (plain http:// is only accepted for localhost).");
+    throw new QrSuisseArgumentError("baseUrl must use https:// (plain http:// is only accepted for localhost).");
   }
   return url.href.replace(/\/+$/, "");
 }
 
 function qrCodePath(id: string): string {
   if (typeof id !== "string" || id.trim() === "") {
-    throw new TypeError("A QR code id is required.");
+    throw new QrSuisseArgumentError("A QR code id is required.");
   }
   return `/qr-codes/${encodeURIComponent(id)}`;
 }

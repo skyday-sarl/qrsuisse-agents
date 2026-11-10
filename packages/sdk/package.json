@@ -45,6 +45,10 @@
   "scripts": {
     "generate": "openapi-typescript ../../spec/openapi.yaml --default-non-nullable false --output src/generated/openapi.ts",
     "build": "tsc -p tsconfig.build.json",
-    "prepack": "npm run build"
+    "prepack": "npm run build",
+    "prepublishOnly": "node ../../scripts/check-publish-allowed.mjs"
+  },
+  "publishConfig": {
+    "access": "public"
   }
 }

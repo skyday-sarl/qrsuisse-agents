@@ -10,12 +10,15 @@ export {
   type QrCodeImageOptions,
   type QrSuisseClientOptions,
   type RequestOptions,
+  type RetryNotice,
   type RetryOptions,
 } from "./client.js";
 export {
   QrSuisseApiError,
+  QrSuisseArgumentError,
   QrSuisseConnectionError,
   QrSuisseError,
+  QrSuisseRedirectError,
   isQrSuisseApiError,
   type QrSuisseErrorCode,
 } from "./errors.js";

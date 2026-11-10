@@ -39,6 +39,8 @@ async function run(argv: string[], options: { responses?: Response[]; env?: Reco
     },
     readStdin: async () => options.stdin ?? "",
     writeFile: async (path, data) => {
+      // Simulates a missing folder, as fs.writeFile does.
+      if (path.startsWith("no-such-dir/")) throw Object.assign(new Error("ENOENT: no such file or directory"), { code: "ENOENT" });
       written.set(path, data);
     },
     randomUUID: () => "00000000-0000-4000-8000-000000000001",
@@ -317,5 +319,73 @@ describe("errors", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("--retries announces each wait on stderr", async () => {
+    vi.useFakeTimers();
+    try {
+      const pending = run(["usage", "--retries", "2", "--compact"], {
+        responses: [jsonResponse({ error: "rate_limited", message: "…" }, 429, { "Retry-After": "2" }), jsonResponse({ used: 0 })],
+      });
+      await vi.advanceTimersByTimeAsync(2_000);
+      const result = await pending;
+      expect(result.code).toBe(EXIT_OK);
+      expect(JSON.parse(result.stderr)).toEqual({ notice: "retrying", error: "rate_limited", status: 429, delaySeconds: 2, attempt: 1, maxRetries: 2 });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("gives redirect_refused for a redirect, without following it", async () => {
+    const result = await run(["usage", "--compact"], { responses: [new Response(null, { status: 308, headers: { Location: "https://example.ch/login" } })] });
+    expect(result.code).toBe(EXIT_API_ERROR);
+    expect(JSON.parse(result.stderr)).toMatchObject({ error: "redirect_refused", status: 308, location: "https://example.ch/login" });
+    expect(result.requests).toHaveLength(1);
+  });
+
+  it("gives unexpected_response for a successful answer that is not JSON", async () => {
+    const result = await run(["usage", "--compact"], { responses: [new Response("<html>portal</html>", { status: 200 })] });
+    expect(result.code).toBe(EXIT_API_ERROR);
+    expect(JSON.parse(result.stderr)).toMatchObject({ error: "unexpected_response", status: 200 });
+  });
+
+  it("never prints the key, even if the server sends it back", async () => {
+    const result = await run(["usage", "--compact"], { responses: [jsonResponse({ error: "forbidden", message: `Bearer ${FAKE_API_KEY}` }, 403)] });
+    expect(result.stderr).not.toContain("fake-secret");
+    expect(result.stderr).toContain("[redacted]");
+  });
+});
+
+describe("local errors (exit code 2, explicit code)", () => {
+  async function localError(argv: string[], options: Parameters<typeof run>[1] = {}) {
+    const result = await run([...argv, "--compact"], options);
+    expect(result.code, argv.join(" ")).toBe(EXIT_USAGE_ERROR);
+    return JSON.parse(result.stderr) as { error: string; message: string };
+  }
+
+  it("usage_error for a wrong command line", async () => {
+    expect((await localError(["qr", "list", "--active", "yes"])).error).toBe("usage_error");
+  });
+
+  it("missing_api_key without QRSUISSE_API_KEY", async () => {
+    expect((await localError(["usage"], { env: { QRSUISSE_API_KEY: "" } })).error).toBe("missing_api_key");
+  });
+
+  it("file_error for a --body-file that does not exist, or an --output that cannot be written", async () => {
+    const missing = await localError(["qr", "create", "--body-file", "missing.json"]);
+    expect(missing).toMatchObject({ error: "file_error" });
+    expect(missing.message).toContain("missing.json");
+
+    const result = await run(["qr", "image", "id1", "--output", "no-such-dir/qr.png", "--compact"], {
+      responses: [new Response(new Uint8Array([1]), { headers: { "Content-Type": "image/png" } })],
+    });
+    expect(result.code).toBe(EXIT_USAGE_ERROR);
+    expect(JSON.parse(result.stderr)).toEqual({ error: "file_error", message: "Cannot write --output \"no-such-dir/qr.png\" (ENOENT)." });
+  });
+
+  it("invalid_argument for an invalid --idempotency-key, a blank id or an http:// base URL", async () => {
+    expect((await localError(["qr", "create", "--label", "x", "--url", "https://x.ch", "--idempotency-key", "a b"])).error).toBe("invalid_argument");
+    expect((await localError(["qr", "get", " "])).error).toBe("invalid_argument");
+    expect((await localError(["usage", "--base-url", "http://example.ch/api/v1"])).error).toBe("invalid_argument");
   });
 });

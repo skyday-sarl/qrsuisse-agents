@@ -4,7 +4,9 @@ import {
   DEFAULT_BASE_URL,
   QrSuisseApiError,
   QrSuisseClient,
+  QrSuisseArgumentError,
   QrSuisseConnectionError,
+  QrSuisseRedirectError,
   SDK_VERSION,
   isQrSuisseApiError,
 } from "../src/index.js";
@@ -60,7 +62,7 @@ describe("requests", () => {
     expect(headers.Authorization).toBe(`Bearer ${FAKE_API_KEY}`);
     expect(headers["User-Agent"]).toBe(`qrsuisse-sdk-js/${SDK_VERSION}`);
     expect(init.method).toBe("GET");
-    expect(init.redirect).toBe("error");
+    expect(init.redirect).toBe("manual");
   });
 
   it("returns the data with the rate limit state", async () => {
@@ -342,5 +344,66 @@ describe("errors", () => {
     const error = await clientWith(fetchMock as never, { timeoutMs: 10 }).getUsage().catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(QrSuisseConnectionError);
     expect(error).toMatchObject({ timedOut: true });
+  });
+
+  it("covers the reading of the body with the timeout", async () => {
+    const fetchMock = vi.fn(async (_input: unknown, init?: RequestInit) => {
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init?.signal?.addEventListener("abort", () => controller.error(new DOMException("aborted", "AbortError")));
+        },
+      });
+      return new Response(body, { headers: { "Content-Type": "application/json" } });
+    });
+    const error = await clientWith(fetchMock as never, { timeoutMs: 10 }).getUsage().catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(QrSuisseConnectionError);
+    expect(error).toMatchObject({ timedOut: true });
+  });
+
+  it("gives the system error code of a connection failure", async () => {
+    const fetchMock = vi.fn(async () => {
+      throw new TypeError("fetch failed", { cause: Object.assign(new Error("connect ECONNREFUSED"), { code: "ECONNREFUSED" }) });
+    });
+    const error = await clientWith(fetchMock as never).getUsage().catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ causeCode: "ECONNREFUSED", timedOut: false });
+  });
+
+  it("refuses a redirect with its own error, without following it", async () => {
+    const fetchMock = mockFetch(new Response(null, { status: 301, headers: { Location: "https://app.qrsuisse.ch/api/v1/usage" } }));
+    const error = await clientWith(fetchMock).getUsage().catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(QrSuisseRedirectError);
+    expect(error).toMatchObject({ code: "redirect_refused", status: 301, location: "https://app.qrsuisse.ch/api/v1/usage" });
+    expect((error as Error).message).toContain("/api/v1");
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a successful response that is not JSON as unexpected_response", async () => {
+    const fetchMock = mockFetch(new Response("<html>Captive portal</html>", { status: 200, headers: { "Content-Type": "text/html" } }));
+    const error = await clientWith(fetchMock).getUsage().catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(QrSuisseApiError);
+    expect(error).toMatchObject({ status: 200, code: "unexpected_response", body: "<html>Captive portal</html>" });
+  });
+
+  it("throws QrSuisseArgumentError, a TypeError, for an invalid argument", async () => {
+    await expect(clientWith(mockFetch()).getQrCode("")).rejects.toBeInstanceOf(QrSuisseArgumentError);
+    expect(() => new QrSuisseClient({ apiKey: "" })).toThrow(QrSuisseArgumentError);
+  });
+
+  it("calls onRetry before each wait", async () => {
+    vi.useFakeTimers();
+    try {
+      const onRetry = vi.fn();
+      const fetchMock = mockFetch(
+        jsonResponse({ error: "rate_limited", message: "…" }, { status: 429, headers: { "Retry-After": "3" } }),
+        jsonResponse({ used: 0 }),
+      );
+      const pending = clientWith(fetchMock, { retry: { maxRetries: 2, onRetry } }).getUsage();
+      await vi.advanceTimersByTimeAsync(3_000);
+      await pending;
+      expect(onRetry).toHaveBeenCalledTimes(1);
+      expect(onRetry.mock.calls[0]?.[0]).toMatchObject({ delaySeconds: 3, attempt: 1, maxRetries: 2, error: { code: "rate_limited" } });
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -7,6 +7,6 @@ export default defineConfig({
     alias: { "@qrsuisse/sdk": fileURLToPath(new URL("./packages/sdk/src/index.ts", import.meta.url)) },
   },
   test: {
-    include: ["packages/*/test/**/*.test.ts"],
+    include: ["packages/*/test/**/*.test.ts", "scripts/**/*.test.ts"],
   },
 });

@@ -8,7 +8,9 @@ the creation quota of the account and its style templates.
 
 - Typed from the OpenAPI specification of the API, version 1.3.0 (see `spec/` at the root of
   the repository).
-- No runtime dependency: native `fetch` (Node.js 18.17 or later, Deno, Bun, browsers).
+- No runtime dependency: native `fetch` (Node.js 18.17 or later, Deno, Bun).
+- **Server-side only.** Never use it in a browser or ship the API key in front-end code: anyone
+  could read the key there and act on the account.
 - API key sent only in the `Authorization` header, over HTTPS.
 - Optional `Idempotency-Key` on creations, `RateLimit` / `Retry-After` reading, optional waits and
   retries, typed errors.
@@ -144,10 +146,17 @@ The API answers every error with `{ "error": "<code>", "message": "<text>" }`. T
 - `QrSuisseApiError`: the API answered with an error status. Use `code` (`not_found`,
   `forbidden`, `rate_limited`, `quota_exceeded`, ...), never `message`, a French text that may
   change. Also `status`, `body`, `retryAfter` (seconds), `rateLimit`, and `resetAt` for
-  `quota_exceeded`. A response outside this format gets the code `unexpected_response`.
-- `QrSuisseConnectionError`: no answer (network, DNS, TLS, or timeout with `timedOut: true`).
-- `TypeError`: invalid argument, before anything is sent (missing key, `http://` address,
-  malformed `idempotencyKey`, empty id).
+  `quota_exceeded`. A response outside this format, including a successful response that is
+  not JSON (proxy, captive portal), gets the code `unexpected_response`.
+- `QrSuisseRedirectError` (`code: "redirect_refused"`, `status`, `location`): the server answered
+  with a redirect, which the client never follows so that the key is not sent elsewhere. The
+  API never redirects: check the base URL (`https://`, ending with `/api/v1`).
+- `QrSuisseConnectionError`: no complete answer (network, DNS, TLS, or timeout with
+  `timedOut: true`); `causeCode` gives the system error code when there is one (`ECONNREFUSED`...).
+- `QrSuisseArgumentError` (a `TypeError`): invalid argument, before anything is sent (missing
+  key, `http://` address, malformed `idempotencyKey`, empty id).
+
+`QrSuisseApiError`, `QrSuisseRedirectError` and `QrSuisseConnectionError` extend `QrSuisseError`.
 
 ```ts
 import { isQrSuisseApiError } from "@qrsuisse/sdk";
@@ -184,7 +193,11 @@ request again on `429 rate_limited`, `409 idempotency_in_progress` and `503 rend
 ```ts
 const client = new QrSuisseClient({
   apiKey: process.env.QRSUISSE_API_KEY!,
-  retry: { maxRetries: 2, maxDelaySeconds: 60 },
+  retry: {
+    maxRetries: 2,
+    maxDelaySeconds: 60,
+    onRetry: ({ error, delaySeconds }) => console.warn(`${error.code}: retrying in ${delaySeconds} s`),
+  },
 });
 ```
 
@@ -196,7 +209,7 @@ const client = new QrSuisseClient({
 |---|---|---|
 | `apiKey` | required | API key (`qrs_live_...`). |
 | `baseUrl` | `https://app.qrsuisse.ch/api/v1` | HTTPS only; `http://` is accepted for `localhost` only. |
-| `timeoutMs` | `30000` | Timeout of each attempt. |
+| `timeoutMs` | `30000` | Timeout of each attempt, reading of the response body included. |
 | `retry` | `{ maxRetries: 0 }` | See above. |
 | `fetch` | global `fetch` | Custom `fetch` implementation. |
 

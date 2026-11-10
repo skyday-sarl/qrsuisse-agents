@@ -29,8 +29,11 @@ Global options:
   -v, --version              Show the version.
 
 Output:
-  JSON on stdout. On an API error, the error (code, message, status, retryAfter, resetAt) is
-  printed as JSON on stderr and the exit code is 1; on a usage error, the exit code is 2.
+  JSON on stdout. On an API error (or connection_error, redirect_refused, unexpected_response),
+  the error (code, message, status, retryAfter, resetAt) is printed as JSON on stderr and the
+  exit code is 1. An error detected by the CLI itself (usage_error, missing_api_key,
+  invalid_argument, file_error) is printed the same way with the exit code 2. With --retries,
+  each wait is announced by a JSON line on stderr ({"notice":"retrying",...}).
   Base your logic on the "error" code, never on "message" (a French text that may change).
 
 Not available:

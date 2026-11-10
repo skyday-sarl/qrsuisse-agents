@@ -1,8 +1,11 @@
 import { parseArgs } from "node:util";
 import {
   QrSuisseApiError,
+  QrSuisseArgumentError,
   QrSuisseClient,
   QrSuisseConnectionError,
+  QrSuisseRedirectError,
+  type RetryNotice,
   type ListQrCodesParams,
   type QrCode,
   type QrCodeCreateInput,
@@ -28,8 +31,18 @@ export const EXIT_OK = 0;
 export const EXIT_API_ERROR = 1;
 export const EXIT_USAGE_ERROR = 2;
 
-/** Wrong command line: exit code 2, message on stderr. */
-class UsageError extends Error {}
+/** Codes of the errors detected by the CLI itself, before or without an answer of the API (exit code 2). */
+type LocalErrorCode = "usage_error" | "missing_api_key" | "invalid_argument" | "file_error";
+
+/** Error detected by the CLI itself: exit code 2, JSON on stderr with an explicit code. */
+class UsageError extends Error {
+  constructor(
+    message: string,
+    readonly code: LocalErrorCode = "usage_error",
+  ) {
+    super(message);
+  }
+}
 
 const GLOBAL_OPTIONS = ["base-url", "retries", "compact", "help", "version"] as const;
 const URL_FIELD_OPTIONS = ["url"] as const;
@@ -211,15 +224,17 @@ function createClient(values: Values, io: CliEnvironment): QrSuisseClient {
   if (!apiKey) {
     throw new UsageError(
       "Set the QRSUISSE_API_KEY environment variable to an API key created in the QR Suisse dashboard (Pro and Entreprise plans).",
+      "missing_api_key",
     );
   }
   const baseUrl = values["base-url"] ?? (io.env.QRSUISSE_API_BASE_URL?.trim() || undefined);
   const maxRetries = values.retries === undefined ? 0 : parseInteger("--retries", values.retries);
-  try {
-    return new QrSuisseClient({ apiKey, baseUrl, retry: { maxRetries }, fetch: io.fetch });
-  } catch (error) {
-    throw new UsageError(error instanceof Error ? error.message : String(error));
-  }
+  // Each wait is announced on stderr, so that a long wait is not taken for a frozen command.
+  const onRetry = ({ error, delaySeconds, attempt }: RetryNotice) =>
+    io.stderr.write(
+      `${JSON.stringify({ notice: "retrying", error: error.code, status: error.status, delaySeconds, attempt, maxRetries })}\n`,
+    );
+  return new QrSuisseClient({ apiKey, baseUrl, retry: { maxRetries, onRetry }, fetch: io.fetch });
 }
 
 async function listQrCodes(client: QrSuisseClient, values: Values): Promise<unknown> {
@@ -310,7 +325,9 @@ function refuseFieldOptionsWithBodyFile(values: Values): void {
 }
 
 async function readJsonBody(source: string, io: CliEnvironment): Promise<Record<string, unknown>> {
-  const text = source === "-" ? await io.readStdin() : await io.readFile(source);
+  const text = await localFileOperation(`Cannot read --body-file ${source === "-" ? "from stdin" : `"${source}"`}`, () =>
+    source === "-" ? io.readStdin() : io.readFile(source),
+  );
   let body: unknown;
   try {
     body = JSON.parse(text);
@@ -350,7 +367,7 @@ async function downloadImage(
     io.stdout.write(image.data);
     return EXIT_OK;
   }
-  await io.writeFile(output, image.data);
+  await localFileOperation(`Cannot write --output "${output}"`, () => io.writeFile(output, image.data));
   print({
     notModified: false,
     file: output,
@@ -367,6 +384,17 @@ function parseInteger(option: string, value: string): number {
   return Number(value);
 }
 
+/** Runs a file operation; a failure (missing file, missing folder, no permission) is a local error, not a bug. */
+async function localFileOperation<T>(description: string, operation: () => Promise<T>): Promise<T> {
+  try {
+    return await operation();
+  } catch (error) {
+    const code = (error as { code?: unknown } | null)?.code;
+    const reason = typeof code === "string" ? code : error instanceof Error ? error.message : String(error);
+    throw new UsageError(`${description} (${reason}).`, "file_error");
+  }
+}
+
 /** Copy of `fields` without the `undefined` values: a missing option leaves the field out of the body. */
 function definedFields<T extends Record<string, unknown>>(fields: T): { [K in keyof T]?: Exclude<T[K], undefined> } {
   return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== undefined)) as {
@@ -375,16 +403,28 @@ function definedFields<T extends Record<string, unknown>>(fields: T): { [K in ke
 }
 
 function reportError(error: unknown, io: CliEnvironment, context: { idempotencyKey: string | undefined; compact: boolean }): number {
-  const write = (value: unknown) => io.stderr.write(`${JSON.stringify(value, null, context.compact ? undefined : 2)}\n`);
+  const apiKey = io.env.QRSUISSE_API_KEY?.trim();
+  const write = (value: unknown) => {
+    const text = JSON.stringify(value, null, context.compact ? undefined : 2);
+    // Defence in depth: never print the key, even if a server sends it back in a message.
+    io.stderr.write(`${apiKey ? text.split(apiKey).join("[redacted]") : text}\n`);
+  };
   // Only when a failed creation may be sent again as is: with the same key, it cannot create a duplicate.
   const canBeSentAgain =
     error instanceof QrSuisseConnectionError ||
     (error instanceof QrSuisseApiError &&
-      (error.status >= 500 || error.code === "rate_limited" || error.code === "idempotency_in_progress"));
+      (error.status >= 500 ||
+        error.code === "rate_limited" ||
+        error.code === "idempotency_in_progress" ||
+        error.code === "unexpected_response"));
   const retryHint = context.idempotencyKey !== undefined && canBeSentAgain ? { idempotencyKey: context.idempotencyKey } : {};
 
   if (error instanceof UsageError) {
-    io.stderr.write(`qrsuisse: ${error.message}\n`);
+    write({ error: error.code, message: error.message });
+    return EXIT_USAGE_ERROR;
+  }
+  if (error instanceof QrSuisseArgumentError) {
+    write({ error: "invalid_argument", message: error.message });
     return EXIT_USAGE_ERROR;
   }
   if (error instanceof QrSuisseApiError) {
@@ -397,8 +437,18 @@ function reportError(error: unknown, io: CliEnvironment, context: { idempotencyK
     });
     return EXIT_API_ERROR;
   }
+  if (error instanceof QrSuisseRedirectError) {
+    write({ error: error.code, message: error.message, status: error.status, ...definedFields({ location: error.location }) });
+    return EXIT_API_ERROR;
+  }
   if (error instanceof QrSuisseConnectionError) {
-    write({ error: "connection_error", message: error.message, timedOut: error.timedOut, ...retryHint });
+    write({
+      error: "connection_error",
+      message: error.message,
+      timedOut: error.timedOut,
+      ...definedFields({ cause: error.causeCode }),
+      ...retryHint,
+    });
     return EXIT_API_ERROR;
   }
   write({ error: "internal_cli_error", message: error instanceof Error ? error.message : String(error) });

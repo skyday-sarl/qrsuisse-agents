@@ -53,17 +53,61 @@ export class QrSuisseApiError extends QrSuisseError {
   }
 }
 
-/** The request did not get an answer: network failure, DNS, TLS or timeout. */
+/** The request did not get a complete answer: network failure, DNS, TLS or timeout. */
 export class QrSuisseConnectionError extends QrSuisseError {
   override name = "QrSuisseConnectionError";
 
   /** `true` when the request was aborted by the SDK timeout. */
   readonly timedOut: boolean;
+  /** System error code of the cause when there is one, for example `ECONNREFUSED` or `CERT_HAS_EXPIRED`. */
+  readonly causeCode: string | undefined;
 
   constructor(message: string, options: { cause: unknown; timedOut: boolean }) {
     super(message, { cause: options.cause });
     this.timedOut = options.timedOut;
+    this.causeCode = systemErrorCode(options.cause);
   }
+}
+
+/**
+ * The server answered with a redirect. The client never follows one, so that the API key is
+ * never sent to another address: the API itself never redirects, so the base URL is usually wrong
+ * (`http://` instead of `https://`, or a path without `/api/v1`).
+ */
+export class QrSuisseRedirectError extends QrSuisseError {
+  override name = "QrSuisseRedirectError";
+
+  readonly code = "redirect_refused";
+  /** HTTP status of the redirect (`0` when the runtime hides it). */
+  readonly status: number;
+  /** Target of the redirect (`Location` header), when the runtime gives it. */
+  readonly location: string | undefined;
+
+  constructor(details: { method: string; path: string; status: number; location: string | undefined }) {
+    super(
+      `${details.method} ${details.path}: the server answered with a redirect${details.location ? ` to ${details.location}` : ""}, ` +
+        "which the client never follows so that the API key is not sent elsewhere. " +
+        "Check the base URL: it must be the https:// address of the API, ending with /api/v1.",
+    );
+    this.status = details.status;
+    this.location = details.location;
+  }
+}
+
+/** Invalid argument, detected before anything is sent (missing key, `http://` address, malformed `idempotencyKey`...). */
+export class QrSuisseArgumentError extends TypeError {
+  override name = "QrSuisseArgumentError";
+}
+
+/** `code` of a Node.js system error, looked for on the error and on its cause (`fetch failed` wraps it). */
+function systemErrorCode(error: unknown): string | undefined {
+  for (let current = error, depth = 0; isRecord(current); depth++) {
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === "string") return code;
+    if (depth >= 3) return undefined;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return undefined;
 }
 
 /** `true` if `error` is an API error, optionally with the given code. */
