@@ -20,6 +20,9 @@ commitment (availability, quotas, features) beyond the Terms and Conditions
   Never run `npm publish`: publishing is decided by Skyday Sàrl. A `prepublishOnly` guard
   (`scripts/check-publish-allowed.mjs`) makes `npm publish` fail unless
   `QRSUISSE_PUBLISH_APPROVED=yes` is set for that command; only Skyday Sàrl sets it.
+  This guard is not a protection: `npm publish <file>.tgz` (publishing a packed tarball) does not
+  run it. The only publication allowed is the one ordered by Jérôme (Skyday Sàrl), ideally from a
+  GitHub Action with `npm publish --provenance`.
 - Do not add an API key, a token, an internal hostname, an IP address or a personal email
   address to any file, including examples. Examples read the key from the `QRSUISSE_API_KEY`
   environment variable.

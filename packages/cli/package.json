@@ -38,7 +38,7 @@
     "@qrsuisse/sdk": "0.1.0"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "node ../../scripts/clean-dist.mjs && tsc -p tsconfig.build.json",
     "prepack": "npm run build",
     "prepublishOnly": "node ../../scripts/check-publish-allowed.mjs"
   }
