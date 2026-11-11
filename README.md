@@ -1,5 +1,7 @@
 # QR Suisse — agents
 
+[![Ora agent readiness](https://ora.ai/api/badge/qrsuisse.ch)](https://ora.ai/score/qrsuisse.ch)
+
 Instructions, skill, SDK and CLI for AI agents using the **QR Suisse API**, the REST API of the
 QR Suisse dynamic QR code generator (not related to the Swiss QR-bill).
 
