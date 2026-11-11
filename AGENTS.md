@@ -13,7 +13,16 @@ commitment (availability, quotas, features) beyond the Terms and Conditions
 
 ## Working on this repository
 
-- Content only: Markdown and JSON. There is nothing to build, install or test.
+- Markdown and JSON, plus a TypeScript SDK (`packages/sdk`) and CLI (`packages/cli`), not
+  published on npm. To work on them: `npm install`, `npm run build`, `npm run typecheck`,
+  `npm test` (the packages run on Node.js 18.17 or later; the tests need Node.js 20 or later). Their types are generated from `spec/openapi.yaml` with
+  `npm run generate` (see `spec/README.md`); never edit `packages/sdk/src/generated/` by hand.
+  Never run `npm publish`: publishing is decided by Skyday Sàrl. A `prepublishOnly` guard
+  (`scripts/check-publish-allowed.mjs`) makes `npm publish` fail unless
+  `QRSUISSE_PUBLISH_APPROVED=yes` is set for that command; only Skyday Sàrl sets it.
+  This guard is not a protection: `npm publish <file>.tgz` (publishing a packed tarball) does not
+  run it. The only publication allowed is the one ordered by Jérôme (Skyday Sàrl), ideally from a
+  GitHub Action with `npm publish --provenance`.
 - Do not add an API key, a token, an internal hostname, an IP address or a personal email
   address to any file, including examples. Examples read the key from the `QRSUISSE_API_KEY`
   environment variable.

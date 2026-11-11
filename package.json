@@ -1,0 +1,26 @@
+{
+  "name": "qrsuisse-agents-workspace",
+  "private": true,
+  "description": "Workspace root of the QR Suisse SDK and CLI (not published).",
+  "license": "MIT",
+  "type": "module",
+  "workspaces": [
+    "packages/sdk",
+    "packages/cli"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "scripts": {
+    "generate": "npm run generate --workspace @qrsuisse/sdk",
+    "build": "npm run build --workspace @qrsuisse/sdk && npm run build --workspace qrsuisse",
+    "typecheck": "npm run build --workspace @qrsuisse/sdk && tsc -p packages/sdk/tsconfig.json --noEmit && tsc -p packages/cli/tsconfig.json --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^20.19.43",
+    "openapi-typescript": "^7.13.0",
+    "typescript": "^5.9.3",
+    "vitest": "^4.1.12"
+  }
+}
