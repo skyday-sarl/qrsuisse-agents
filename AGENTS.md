@@ -31,8 +31,9 @@ commitment (availability, quotas, features) beyond the Terms and Conditions
   https://agent-plugins.org/schemas/1.0.0/plugin.schema.json.
 - Skills live in `skills/<name>/SKILL.md` and follow the Agent Skills specification
   (https://agentskills.io/specification); `name` must match the directory name.
-- This repository declares no MCP server (`mcp.json` is absent on purpose): QR Suisse does not
-  offer an MCP server. Agents call the REST API directly.
+- This repository declares no MCP server (`mcp.json` is absent on purpose). QR Suisse publishes
+  only a read-only documentation MCP server (https://www.qrsuisse.ch/mcp/docs, registry name
+  `ch.qrsuisse/mcp-docs`), which cannot act on an account. Agents call the REST API directly.
 - External contributions are not accepted: this repository follows
   https://www.qrsuisse.ch/agents.md and is updated by Skyday Sàrl only.
 

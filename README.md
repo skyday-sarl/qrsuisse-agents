@@ -1,6 +1,17 @@
 # QR Suisse — agents
 
+Instructions, skill, SDK and CLI for AI agents using the **QR Suisse API**, the REST API of the
+QR Suisse dynamic QR code generator (not related to the Swiss QR-bill).
+
 [Français](#français) · [English](#english)
+
+**QR Suisse API**:
+[developers](https://www.qrsuisse.ch/developers) ·
+[API documentation](https://www.qrsuisse.ch/en/api-documentation) ·
+[OpenAPI (JSON)](https://www.qrsuisse.ch/openapi.json) ·
+[QR Suisse MCP server (documentation)](https://www.qrsuisse.ch/en/api-documentation/mcp-server) ·
+[MCP Registry entry `ch.qrsuisse/mcp-docs`](https://registry.modelcontextprotocol.io/v0.1/servers?search=ch.qrsuisse/mcp-docs) ·
+[llms.txt](https://www.qrsuisse.ch/llms.txt)
 
 ## Français
 
@@ -21,12 +32,18 @@ l'API QR Suisse au nom d'un utilisateur :
 - [`packages/sdk`](packages/sdk) et [`packages/cli`](packages/cli) : SDK TypeScript et CLI de
   l'API v1 (non publiés), documentés en anglais.
 
-Ce dépôt ne déclare aucun serveur MCP : QR Suisse ne propose pas de serveur MCP. Les agents
-appellent directement l'API REST.
+Ce dépôt ne déclare aucun serveur MCP. QR Suisse publie un
+[serveur MCP de documentation](https://www.qrsuisse.ch/documentation-api/serveur-mcp)
+(`https://www.qrsuisse.ch/mcp/docs`, lecture seule, sans clé API, inscrit au
+[registre MCP officiel](https://registry.modelcontextprotocol.io/v0.1/servers?search=ch.qrsuisse/mcp-docs)
+sous le nom `ch.qrsuisse/mcp-docs`) : il permet de chercher et de lire la documentation, pas d'agir
+sur un compte. Pour agir sur les QR codes, les agents appellent directement l'API REST.
 Une clé API se crée uniquement depuis le tableau de bord QR Suisse ; ne la versionnez jamais et ne
 la collez jamais dans une conversation.
 
-Liens : [documentation de l'API](https://www.qrsuisse.ch/documentation-api) ·
+Liens : [développeurs](https://www.qrsuisse.ch/fr/developers) ·
+[documentation de l'API](https://www.qrsuisse.ch/documentation-api) ·
+[serveur MCP de la documentation](https://www.qrsuisse.ch/documentation-api/serveur-mcp) ·
 [OpenAPI (JSON)](https://www.qrsuisse.ch/openapi.json) ·
 [OpenAPI (YAML)](https://www.qrsuisse.ch/openapi.yaml) ·
 [auth.md](https://www.qrsuisse.ch/auth.md) ·
@@ -54,12 +71,18 @@ QR Suisse API on behalf of a user:
 - [`packages/sdk`](packages/sdk) and [`packages/cli`](packages/cli): TypeScript SDK and CLI for
   API v1 (not published).
 
-This repository declares no MCP server: QR Suisse does not offer an MCP server. Agents call the
-REST API directly.
+This repository declares no MCP server. QR Suisse publishes a
+[documentation MCP server](https://www.qrsuisse.ch/en/api-documentation/mcp-server)
+(`https://www.qrsuisse.ch/mcp/docs`, read-only, no API key, listed in the
+[official MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=ch.qrsuisse/mcp-docs)
+as `ch.qrsuisse/mcp-docs`): it searches and reads the documentation, it does not act on an account.
+To act on QR codes, agents call the REST API directly.
 An API key can only be created from the QR Suisse dashboard; never commit it and never paste it
 into a conversation.
 
-Links: [API documentation](https://www.qrsuisse.ch/en/api-documentation) ·
+Links: [developers](https://www.qrsuisse.ch/developers) ·
+[API documentation](https://www.qrsuisse.ch/en/api-documentation) ·
+[documentation MCP server](https://www.qrsuisse.ch/en/api-documentation/mcp-server) ·
 [OpenAPI (JSON)](https://www.qrsuisse.ch/openapi.json) ·
 [OpenAPI (YAML)](https://www.qrsuisse.ch/openapi.yaml) ·
 [auth.md](https://www.qrsuisse.ch/auth.md) ·
