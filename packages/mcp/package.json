@@ -1,0 +1,49 @@
+{
+  "name": "@qrsuisse/mcp",
+  "version": "0.1.0",
+  "private": false,
+  "description": "Local stdio MCP server for QR Suisse: relays the read-only QR Suisse documentation MCP server (https://www.qrsuisse.ch/mcp/docs) to MCP clients that start servers with npx (Claude Desktop, Cursor, VS Code). No account, no API key.",
+  "keywords": [
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "qr-code",
+    "dynamic-qr-code",
+    "qrsuisse",
+    "switzerland"
+  ],
+  "homepage": "https://www.qrsuisse.ch/en/api-documentation/mcp-server",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/skyday-sarl/qrsuisse-agents.git",
+    "directory": "packages/mcp"
+  },
+  "bugs": {
+    "url": "https://github.com/skyday-sarl/qrsuisse-agents/blob/main/SECURITY.md"
+  },
+  "license": "MIT",
+  "author": "Skyday Sàrl (https://www.qrsuisse.ch)",
+  "type": "module",
+  "bin": {
+    "qrsuisse-mcp": "./dist/bin.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18.17"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.32.2"
+  },
+  "scripts": {
+    "build": "node ../../scripts/clean-dist.mjs && tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
+    "prepublishOnly": "node ../../scripts/check-publish-allowed.mjs"
+  },
+  "publishConfig": {
+    "access": "public"
+  }
+}

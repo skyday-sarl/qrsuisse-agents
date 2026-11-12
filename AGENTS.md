@@ -13,8 +13,8 @@ commitment (availability, quotas, features) beyond the Terms and Conditions
 
 ## Working on this repository
 
-- Markdown and JSON, plus a TypeScript SDK (`packages/sdk`) and CLI (`packages/cli`), not
-  published on npm. To work on them: `npm install`, `npm run build`, `npm run typecheck`,
+- Markdown and JSON, plus a TypeScript SDK (`packages/sdk`), a CLI (`packages/cli`) and a local
+  MCP server (`packages/mcp`, `@qrsuisse/mcp`), not published on npm. To work on them: `npm install`, `npm run build`, `npm run typecheck`,
   `npm test` (the packages run on Node.js 18.17 or later; the tests need Node.js 20 or later). Their types are generated from `spec/openapi.yaml` with
   `npm run generate` (see `spec/README.md`); never edit `packages/sdk/src/generated/` by hand.
   Never run `npm publish`: publishing is decided by Skyday Sàrl. A `prepublishOnly` guard
@@ -34,6 +34,11 @@ commitment (availability, quotas, features) beyond the Terms and Conditions
 - This repository declares no MCP server (`mcp.json` is absent on purpose). QR Suisse publishes
   only a read-only documentation MCP server (https://www.qrsuisse.ch/mcp/docs, registry name
   `ch.qrsuisse/mcp-docs`), which cannot act on an account. Agents call the REST API directly.
+- `packages/mcp` (`@qrsuisse/mcp`, command `qrsuisse-mcp`) is a stdio bridge to that documentation
+  MCP server, built on `@modelcontextprotocol/sdk` (its only dependency). It relays `tools/list`
+  and `tools/call` and their errors unchanged; it must never copy the tools or their schemas, never
+  call the REST API, never read an API key and never write on stdout outside the MCP protocol
+  (logs go to stderr). The remote address is HTTPS only (HTTP for localhost only).
 - External contributions are not accepted: this repository follows
   https://www.qrsuisse.ch/agents.md and is updated by Skyday Sàrl only.
 
