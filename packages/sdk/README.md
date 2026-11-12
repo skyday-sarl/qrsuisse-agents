@@ -4,8 +4,6 @@ TypeScript client for the [QR Suisse](https://www.qrsuisse.ch) public REST API (
 read, update and archive dynamic QR codes, download their image, read their scan statistics,
 the creation quota of the account and its style templates.
 
-> **Not published yet.** This package is not on npm. The package name is provisional.
-
 - Typed from the OpenAPI specification of the API, version 1.3.0 (see `spec/` at the root of
   the repository).
 - No runtime dependency: native `fetch` (Node.js 18.17 or later, Deno, Bun).
@@ -21,12 +19,11 @@ your tool needs.
 
 ## Install
 
-Until it is published, build it from this repository:
-
 ```sh
-npm install
-npm run build
+npm install @qrsuisse/sdk
 ```
+
+To work on it from this repository: `npm install`, then `npm run build` at the root.
 
 ## Quick start
 

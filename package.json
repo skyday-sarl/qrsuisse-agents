@@ -1,7 +1,7 @@
 {
   "name": "qrsuisse-agents-workspace",
   "private": true,
-  "description": "Workspace root of the QR Suisse SDK, CLI and MCP server (not published).",
+  "description": "Workspace root of the QR Suisse SDK, CLI and MCP server (this root package is not published).",
   "license": "MIT",
   "type": "module",
   "workspaces": [

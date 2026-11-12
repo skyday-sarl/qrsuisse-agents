@@ -13,8 +13,10 @@ commitment (availability, quotas, features) beyond the Terms and Conditions
 
 ## Working on this repository
 
-- Markdown and JSON, plus a TypeScript SDK (`packages/sdk`), a CLI (`packages/cli`) and a local
-  MCP server (`packages/mcp`, `@qrsuisse/mcp`), not published on npm. To work on them: `npm install`, `npm run build`, `npm run typecheck`,
+- Markdown and JSON, plus a TypeScript SDK (`packages/sdk`, published on npm as `@qrsuisse/sdk`),
+  a CLI (`packages/cli`, published on npm as `qrsuisse`) and a local MCP server (`packages/mcp`,
+  `@qrsuisse/mcp`, to be published on npm soon). To use them: `npm install @qrsuisse/sdk`,
+  `npx qrsuisse --help`. To work on them: `npm install`, `npm run build`, `npm run typecheck`,
   `npm test` (the packages run on Node.js 18.17 or later; the tests need Node.js 20 or later). Their types are generated from `spec/openapi.yaml` with
   `npm run generate` (see `spec/README.md`); never edit `packages/sdk/src/generated/` by hand.
   Never run `npm publish`: publishing is decided by Skyday Sàrl. A `prepublishOnly` guard

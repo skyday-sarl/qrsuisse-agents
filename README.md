@@ -1,6 +1,6 @@
 # QR Suisse — agents
 
-Instructions, skill, SDK and CLI for AI agents using the **QR Suisse API**, the REST API of the
+Instructions, skill, SDK, CLI and MCP server for AI agents using the **QR Suisse API**, the REST API of the
 QR Suisse dynamic QR code generator (not related to the Swiss QR-bill).
 
 [Français](#français) · [English](#english)
@@ -29,11 +29,18 @@ l'API QR Suisse au nom d'un utilisateur :
 - [`plugin.json`](plugin.json) : manifeste au format [Agent Plugins 1.0.0](https://agent-plugins.org/specification) ;
 - [`skills/qrsuisse-create-qr-code`](skills/qrsuisse-create-qr-code/SKILL.md) : compétence
   « créer un QR code via l'API » au format [Agent Skills](https://agentskills.io/specification) ;
-- [`packages/sdk`](packages/sdk) et [`packages/cli`](packages/cli) : SDK TypeScript et CLI de
-  l'API v1 (non publiés), documentés en anglais ;
-- [`packages/mcp`](packages/mcp) : paquet `@qrsuisse/mcp` (pas encore publié sur npm), serveur MCP
+- [`packages/sdk`](packages/sdk) et [`packages/cli`](packages/cli) : SDK TypeScript
+  ([`@qrsuisse/sdk`](https://www.npmjs.com/package/@qrsuisse/sdk)) et CLI
+  ([`qrsuisse`](https://www.npmjs.com/package/qrsuisse)) de l'API v1, publiés sur npm et documentés
+  en anglais ;
+- [`packages/mcp`](packages/mcp) : paquet `@qrsuisse/mcp` (publié prochainement sur npm), serveur MCP
   local (stdio) qui relaie le serveur MCP de documentation ci-dessous, pour les clients MCP qui
   lancent leurs serveurs avec `npx -y @qrsuisse/mcp` (Claude Desktop, Cursor, VS Code).
+
+```sh
+npm install @qrsuisse/sdk   # SDK TypeScript (Node.js 18.17 ou plus récent)
+npx qrsuisse --help         # CLI, sans installation
+```
 
 Ce dépôt ne déclare aucun serveur MCP dans son manifeste. QR Suisse publie un
 [serveur MCP de documentation](https://www.qrsuisse.ch/documentation-api/serveur-mcp)
@@ -73,11 +80,17 @@ QR Suisse API on behalf of a user:
 - [`plugin.json`](plugin.json): manifest in the [Agent Plugins 1.0.0](https://agent-plugins.org/specification) format;
 - [`skills/qrsuisse-create-qr-code`](skills/qrsuisse-create-qr-code/SKILL.md): "create a QR code
   through the API" skill in the [Agent Skills](https://agentskills.io/specification) format;
-- [`packages/sdk`](packages/sdk) and [`packages/cli`](packages/cli): TypeScript SDK and CLI for
-  API v1 (not published);
-- [`packages/mcp`](packages/mcp): `@qrsuisse/mcp` package (not yet published on npm), a local
+- [`packages/sdk`](packages/sdk) and [`packages/cli`](packages/cli): TypeScript SDK
+  ([`@qrsuisse/sdk`](https://www.npmjs.com/package/@qrsuisse/sdk)) and CLI
+  ([`qrsuisse`](https://www.npmjs.com/package/qrsuisse)) for API v1, published on npm;
+- [`packages/mcp`](packages/mcp): `@qrsuisse/mcp` package (to be published on npm soon), a local
   MCP server (stdio) that relays the documentation MCP server below, for MCP clients that start
   their servers with `npx -y @qrsuisse/mcp` (Claude Desktop, Cursor, VS Code).
+
+```sh
+npm install @qrsuisse/sdk   # TypeScript SDK (Node.js 18.17 or later)
+npx qrsuisse --help         # CLI, without installing it
+```
 
 This repository declares no MCP server in its manifest. QR Suisse publishes a
 [documentation MCP server](https://www.qrsuisse.ch/en/api-documentation/mcp-server)

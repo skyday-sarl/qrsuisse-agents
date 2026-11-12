@@ -3,21 +3,18 @@
 Command line interface for the [QR Suisse](https://www.qrsuisse.ch) public REST API (v1), built
 on [`@qrsuisse/sdk`](../sdk). JSON output, for scripts and AI agents.
 
-> **Not published yet.** This package is not on npm. The package name is provisional.
-
 Requires Node.js 18.17 or later and an API key of a Pro or Entreprise account, created in the
 QR Suisse dashboard with only the rights you need.
 
 ## Install
 
-Until it is published, build it from this repository:
-
 ```sh
-npm install
-npm run build
-node packages/cli/dist/bin.js --help
-# or: npm link --workspace qrsuisse, then: qrsuisse --help
+npx qrsuisse --help
+# or install it: npm install --global qrsuisse, then: qrsuisse --help
 ```
+
+To work on it from this repository: `npm install`, `npm run build`, then
+`node packages/cli/dist/bin.js --help`.
 
 ## Authentication
 
