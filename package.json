@@ -1,20 +1,21 @@
 {
   "name": "qrsuisse-agents-workspace",
   "private": true,
-  "description": "Workspace root of the QR Suisse SDK and CLI (not published).",
+  "description": "Workspace root of the QR Suisse SDK, CLI and MCP server (this root package is not published).",
   "license": "MIT",
   "type": "module",
   "workspaces": [
     "packages/sdk",
-    "packages/cli"
+    "packages/cli",
+    "packages/mcp"
   ],
   "engines": {
     "node": ">=18.17"
   },
   "scripts": {
     "generate": "npm run generate --workspace @qrsuisse/sdk",
-    "build": "npm run build --workspace @qrsuisse/sdk && npm run build --workspace qrsuisse",
-    "typecheck": "npm run build --workspace @qrsuisse/sdk && tsc -p packages/sdk/tsconfig.json --noEmit && tsc -p packages/cli/tsconfig.json --noEmit",
+    "build": "npm run build --workspace @qrsuisse/sdk && npm run build --workspace qrsuisse && npm run build --workspace @qrsuisse/mcp",
+    "typecheck": "npm run build --workspace @qrsuisse/sdk && tsc -p packages/sdk/tsconfig.json --noEmit && tsc -p packages/cli/tsconfig.json --noEmit && tsc -p packages/mcp/tsconfig.json --noEmit",
     "test": "vitest run"
   },
   "devDependencies": {

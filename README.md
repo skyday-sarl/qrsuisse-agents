@@ -1,6 +1,6 @@
 # QR Suisse — agents
 
-Instructions, skill, SDK and CLI for AI agents using the **QR Suisse API**, the REST API of the
+Instructions, skill, SDK, CLI and MCP server for AI agents using the **QR Suisse API**, the REST API of the
 QR Suisse dynamic QR code generator (not related to the Swiss QR-bill).
 
 [Français](#français) · [English](#english)
@@ -29,15 +29,27 @@ l'API QR Suisse au nom d'un utilisateur :
 - [`plugin.json`](plugin.json) : manifeste au format [Agent Plugins 1.0.0](https://agent-plugins.org/specification) ;
 - [`skills/qrsuisse-create-qr-code`](skills/qrsuisse-create-qr-code/SKILL.md) : compétence
   « créer un QR code via l'API » au format [Agent Skills](https://agentskills.io/specification) ;
-- [`packages/sdk`](packages/sdk) et [`packages/cli`](packages/cli) : SDK TypeScript et CLI de
-  l'API v1 (non publiés), documentés en anglais.
+- [`packages/sdk`](packages/sdk) et [`packages/cli`](packages/cli) : SDK TypeScript
+  ([`@qrsuisse/sdk`](https://www.npmjs.com/package/@qrsuisse/sdk)) et CLI
+  ([`qrsuisse`](https://www.npmjs.com/package/qrsuisse)) de l'API v1, publiés sur npm et documentés
+  en anglais ;
+- [`packages/mcp`](packages/mcp) : paquet `@qrsuisse/mcp` (publié prochainement sur npm), serveur MCP
+  local (stdio) qui relaie le serveur MCP de documentation ci-dessous, pour les clients MCP qui
+  lancent leurs serveurs avec `npx -y @qrsuisse/mcp` (Claude Desktop, Cursor, VS Code).
 
-Ce dépôt ne déclare aucun serveur MCP. QR Suisse publie un
+```sh
+npm install @qrsuisse/sdk   # SDK TypeScript (Node.js 18.17 ou plus récent)
+npx qrsuisse --help         # CLI, sans installation
+```
+
+Ce dépôt ne déclare aucun serveur MCP dans son manifeste. QR Suisse publie un
 [serveur MCP de documentation](https://www.qrsuisse.ch/documentation-api/serveur-mcp)
 (`https://www.qrsuisse.ch/mcp/docs`, lecture seule, sans clé API, inscrit au
 [registre MCP officiel](https://registry.modelcontextprotocol.io/v0.1/servers?search=ch.qrsuisse/mcp-docs)
 sous le nom `ch.qrsuisse/mcp-docs`) : il permet de chercher et de lire la documentation, pas d'agir
-sur un compte. Pour agir sur les QR codes, les agents appellent directement l'API REST.
+sur un compte. Le paquet `@qrsuisse/mcp` y donne accès en stdio, avec la même limite : il ne donne
+accès qu'à la documentation publique, sans compte ni clé API. Pour agir sur les QR codes, les agents
+appellent directement l'API REST.
 Une clé API se crée uniquement depuis le tableau de bord QR Suisse ; ne la versionnez jamais et ne
 la collez jamais dans une conversation.
 
@@ -68,15 +80,26 @@ QR Suisse API on behalf of a user:
 - [`plugin.json`](plugin.json): manifest in the [Agent Plugins 1.0.0](https://agent-plugins.org/specification) format;
 - [`skills/qrsuisse-create-qr-code`](skills/qrsuisse-create-qr-code/SKILL.md): "create a QR code
   through the API" skill in the [Agent Skills](https://agentskills.io/specification) format;
-- [`packages/sdk`](packages/sdk) and [`packages/cli`](packages/cli): TypeScript SDK and CLI for
-  API v1 (not published).
+- [`packages/sdk`](packages/sdk) and [`packages/cli`](packages/cli): TypeScript SDK
+  ([`@qrsuisse/sdk`](https://www.npmjs.com/package/@qrsuisse/sdk)) and CLI
+  ([`qrsuisse`](https://www.npmjs.com/package/qrsuisse)) for API v1, published on npm;
+- [`packages/mcp`](packages/mcp): `@qrsuisse/mcp` package (to be published on npm soon), a local
+  MCP server (stdio) that relays the documentation MCP server below, for MCP clients that start
+  their servers with `npx -y @qrsuisse/mcp` (Claude Desktop, Cursor, VS Code).
 
-This repository declares no MCP server. QR Suisse publishes a
+```sh
+npm install @qrsuisse/sdk   # TypeScript SDK (Node.js 18.17 or later)
+npx qrsuisse --help         # CLI, without installing it
+```
+
+This repository declares no MCP server in its manifest. QR Suisse publishes a
 [documentation MCP server](https://www.qrsuisse.ch/en/api-documentation/mcp-server)
 (`https://www.qrsuisse.ch/mcp/docs`, read-only, no API key, listed in the
 [official MCP Registry](https://registry.modelcontextprotocol.io/v0.1/servers?search=ch.qrsuisse/mcp-docs)
 as `ch.qrsuisse/mcp-docs`): it searches and reads the documentation, it does not act on an account.
-To act on QR codes, agents call the REST API directly.
+The `@qrsuisse/mcp` package gives access to it over stdio, with the same limit: it gives access to
+the public documentation only, without an account or an API key. To act on QR codes, agents call
+the REST API directly.
 An API key can only be created from the QR Suisse dashboard; never commit it and never paste it
 into a conversation.
 

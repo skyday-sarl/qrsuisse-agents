@@ -35,7 +35,7 @@
     "node": ">=18.17"
   },
   "dependencies": {
-    "@qrsuisse/sdk": "0.1.0"
+    "@qrsuisse/sdk": "^0.1.0"
   },
   "scripts": {
     "build": "node ../../scripts/clean-dist.mjs && tsc -p tsconfig.build.json",
